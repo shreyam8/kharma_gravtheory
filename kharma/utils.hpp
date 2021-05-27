@@ -9,7 +9,7 @@
 #include <string>
 #include <stdexcept>
 
-#define NO_DEVICE_STRING_FORMAT 0
+#define NO_DEVICE_STRING_FORMAT 1
 
 #if NO_DEVICE_STRING_FORMAT
 template<typename ... Args>
