@@ -51,6 +51,8 @@ frames_*/
 *.host
 *.cuda
 *.rocm
+*.sycl
+*.hip
 *.exe
 *.out
 *.app
