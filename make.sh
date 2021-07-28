@@ -76,7 +76,8 @@ fi
 if [[ $HOST == "ferrum" ]]; then
   HOST_ARCH="HSW"
   DEVICE_ARCH="INTEL_GEN"
-  PREFIX_PATH="$HOME/libs/hdf5-oneapi"
+  #PREFIX_PATH="$PWD/external/hdf5"
+  PREFIX_PATH="~/libs/hdf5-oneapi"
 fi
 if [[ $HOST == "cinnabar"* ]]; then
   HOST_ARCH="HSW"
@@ -208,5 +209,5 @@ if [[ "$*" == *"clean"* ]]; then
 #set +x
 fi
 
-make -j
+make -j6
 cp kharma/kharma.* ..
