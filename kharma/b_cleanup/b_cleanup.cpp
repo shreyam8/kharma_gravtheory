@@ -282,21 +282,26 @@ void CleanupDivergence(std::shared_ptr<MeshData<Real>>& md)
 TaskStatus CalcSumDivB(MeshData<Real> *md, Real& reduce_sum)
 {
     Flag(md, "Calculating & summing divB");
-    auto pm = md->GetParentPointer();
+    auto pmesh = md->GetParentPointer();
+    const int ndim = pmesh->ndim;
+    auto pmb0 = md->GetBlockData(0)->GetBlockPointer();
     IndexRange ib = md->GetBoundsI(IndexDomain::interior);
     IndexRange jb = md->GetBoundsJ(IndexDomain::interior);
     IndexRange kb = md->GetBoundsK(IndexDomain::interior);
-    auto pmb0 = md->GetBlockData(0)->GetBlockPointer();
+    // Note this is a stencil-4 (or -8) function, which would involve zones outside the
+    // domain unless we stay off the left edges
+    // So we do the *reverse* of a halo:
+    const IndexRange il = IndexRange{ib.s + 1, ib.e};
+    const IndexRange jl = IndexRange{jb.s + 1, jb.e};
+    const IndexRange kl = (ndim > 2) ? IndexRange{kb.s + 1, kb.e} : kb;
 
     // Get variables
     auto B = md->PackVariables(std::vector<std::string>{"cons.B"});
     auto divB = md->PackVariables(std::vector<std::string>{"divB"});
 
-    const int ndim = B.GetNdim();
-
     // Total divB.
     Real divB_total;
-    pmb0->par_reduce("SumDivB", 0, B.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+    pmb0->par_reduce("SumDivB", 0, B.GetDim(5) - 1, kl.s, kl.e, jl.s, jl.e, il.s, il.e,
         KOKKOS_LAMBDA_MESH_3D_REDUCE {
             const auto& G = B.GetCoords(b);
             divB(b, 0, k, j, i) = B_FluxCT::corner_div(G, B, b, k, j, i, ndim > 2);
@@ -312,20 +317,22 @@ TaskStatus CalcSumDivB(MeshData<Real> *md, Real& reduce_sum)
 TaskStatus InitP(MeshData<Real> *md)
 {
     Flag(md, "Initializing P");
-    auto pm = md->GetParentPointer();
+    auto pmesh = md->GetParentPointer();
+    const int ndim = pmesh->ndim;
     IndexRange ib = md->GetBoundsI(IndexDomain::interior);
     IndexRange jb = md->GetBoundsJ(IndexDomain::interior);
     IndexRange kb = md->GetBoundsK(IndexDomain::interior);
     auto pmb0 = md->GetBlockData(0)->GetBlockPointer();
 
     // Pack variables
+    auto B = md->PackVariables(std::vector<std::string>{"cons.B"});
     auto P = md->PackVariables(std::vector<std::string>{"p"});
-    auto divB = md->PackVariables(std::vector<std::string>{"divB"});
 
     // Initialize P = divB
     pmb0->par_for("init_p", 0, P.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
         KOKKOS_LAMBDA_MESH_3D {
-            P(b, 0, k, j, i) = divB(b, 0, k, j, i);
+            const auto& G = B.GetCoords(b);
+            P(b, 0, k, j, i) = B_FluxCT::corner_div(G, B, b, k, j, i, ndim > 2);
         }
     );
 
@@ -404,11 +411,18 @@ TaskStatus UpdateP(MeshData<Real> *md)
 TaskStatus SumError(MeshData<Real> *md, Real& reduce_sum)
 {
     Flag(md, "Summing remaining error term");
-    auto pm = md->GetParentPointer();
+    auto pmesh = md->GetParentPointer();
+    const int ndim = pmesh->ndim;
+    auto pmb0 = md->GetBlockData(0)->GetBlockPointer();
     IndexRange ib = md->GetBoundsI(IndexDomain::interior);
     IndexRange jb = md->GetBoundsJ(IndexDomain::interior);
     IndexRange kb = md->GetBoundsK(IndexDomain::interior);
-    auto pmb0 = md->GetBlockData(0)->GetBlockPointer();
+    // Note this is a stencil-4 (or -8) function, which would involve zones outside the
+    // domain unless we stay off the left edges
+    // So we do the *reverse* of a halo:
+    const IndexRange il = IndexRange{ib.s + 1, ib.e};
+    const IndexRange jl = IndexRange{jb.s + 1, jb.e};
+    const IndexRange kl = (ndim > 2) ? IndexRange{kb.s + 1, kb.e} : kb;
 
     // Get variables
     auto lap = md->PackVariables(std::vector<std::string>{"lap"});
@@ -420,7 +434,7 @@ TaskStatus SumError(MeshData<Real> *md, Real& reduce_sum)
     // The latter would require a full/scratch vector temporary, and
     // setting FillGhost on dB, but the sync is in the right spot
     Real err_total;
-    pmb0->par_reduce("SumError", 0, lap.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+    pmb0->par_reduce("SumError", 0, lap.GetDim(5) - 1, kl.s, kl.e, jl.s, jl.e, il.s, il.e,
         KOKKOS_LAMBDA_MESH_3D_REDUCE {
             local_result += abs(lap(b, 0, k, j, i) - divB(b, 0, k, j, i));
         }
@@ -434,11 +448,18 @@ TaskStatus SumError(MeshData<Real> *md, Real& reduce_sum)
 TaskStatus MaxError(MeshData<Real> *md, Real& reduce_max)
 {
     Flag(md, "Max new divB");
-    auto pm = md->GetParentPointer();
+    auto pmesh = md->GetParentPointer();
+    const int ndim = pmesh->ndim;
+    auto pmb0 = md->GetBlockData(0)->GetBlockPointer();
     IndexRange ib = md->GetBoundsI(IndexDomain::interior);
     IndexRange jb = md->GetBoundsJ(IndexDomain::interior);
     IndexRange kb = md->GetBoundsK(IndexDomain::interior);
-    auto pmb0 = md->GetBlockData(0)->GetBlockPointer();
+    // Note this is a stencil-4 (or -8) function, which would involve zones outside the
+    // domain unless we stay off the left edges
+    // So we do the *reverse* of a halo:
+    const IndexRange il = IndexRange{ib.s + 1, ib.e};
+    const IndexRange jl = IndexRange{jb.s + 1, jb.e};
+    const IndexRange kl = (ndim > 2) ? IndexRange{kb.s + 1, kb.e} : kb;
 
     // Get variables
     auto lap = md->PackVariables(std::vector<std::string>{"lap"});
@@ -450,7 +471,7 @@ TaskStatus MaxError(MeshData<Real> *md, Real& reduce_max)
     // The latter would require a full/scratch vector temporary, and
     // setting FillGhost on dB, but the sync is in the right spot
     Real err_max;
-    pmb0->par_reduce("SumError", 0, lap.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+    pmb0->par_reduce("MaxError", 0, lap.GetDim(5) - 1, kl.s, kl.e, jl.s, jl.e, il.s, il.e,
         KOKKOS_LAMBDA_MESH_3D_REDUCE {
             const double new_err = abs(lap(b, 0, k, j, i) - divB(b, 0, k, j, i));
             if (new_err > local_result) local_result = new_err;
@@ -465,17 +486,24 @@ TaskStatus MaxError(MeshData<Real> *md, Real& reduce_max)
 TaskStatus SumP(MeshData<Real> *md, Real& reduce_sum)
 {
     Flag(md, "Summing P");
-    auto pm = md->GetParentPointer();
+    auto pmesh = md->GetParentPointer();
+    const int ndim = pmesh->ndim;
+    auto pmb0 = md->GetBlockData(0)->GetBlockPointer();
     IndexRange ib = md->GetBoundsI(IndexDomain::interior);
     IndexRange jb = md->GetBoundsJ(IndexDomain::interior);
     IndexRange kb = md->GetBoundsK(IndexDomain::interior);
-    auto pmb0 = md->GetBlockData(0)->GetBlockPointer();
+    // Note this is a stencil-4 (or -8) function, which would involve zones outside the
+    // domain unless we stay off the left edges
+    // So we do the *reverse* of a halo:
+    const IndexRange il = IndexRange{ib.s + 1, ib.e};
+    const IndexRange jl = IndexRange{jb.s + 1, jb.e};
+    const IndexRange kl = (ndim > 2) ? IndexRange{kb.s + 1, kb.e} : kb;
 
     // Get variables
     auto P = md->PackVariables(std::vector<std::string>{"p"});
 
     Real P_total;
-    pmb0->par_reduce("SumError", 0, P.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+    pmb0->par_reduce("SumError", 0, P.GetDim(5) - 1, kl.s, kl.e, jl.s, jl.e, il.s, il.e,
         KOKKOS_LAMBDA_MESH_3D_REDUCE {
             local_result += abs(P(b, 0, k, j, i));
         }
@@ -489,17 +517,16 @@ TaskStatus SumP(MeshData<Real> *md, Real& reduce_sum)
 TaskStatus ApplyP(MeshData<Real> *md)
 {
     Flag(md, "Applying divB correction");
-    auto pm = md->GetParentPointer();
+    auto pmesh = md->GetParentPointer();
+    const int ndim = pmesh->ndim;
+    auto pmb0 = md->GetBlockData(0)->GetBlockPointer();
     IndexRange ib = md->GetBoundsI(IndexDomain::interior);
     IndexRange jb = md->GetBoundsJ(IndexDomain::interior);
     IndexRange kb = md->GetBoundsK(IndexDomain::interior);
-    auto pmb0 = md->GetBlockData(0)->GetBlockPointer();
 
     // Pack variables
     auto P = md->PackVariables(std::vector<std::string>{"p"});
     auto B = md->PackVariables(std::vector<std::string>{"cons.B"});
-
-    const int ndim = B.GetNdim();
 
     // Apply B -= grad(p) to actually remove divergence
     pmb0->par_for("apply_dp", 0, P.GetDim(5) - 1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
@@ -523,10 +550,9 @@ TaskStatus ApplyP(MeshData<Real> *md)
 }
 
 // TODO get this working later. Needs:
-// 1. Some way to call every X steps (just return converged if off-cadence?)
 // 2. Parameters, mesh pointer, or just driver pointer as arg
-// 3. Is this a good idea here?  More broadly? e.g. for MPI sync, sources, etc?
-// void AddBCleanupTasks(TaskList& tl, const TaskID& t_dep, AllReduce<Real>& update_norm) {
+// void AddBCleanupTasks(TaskList& tl, const TaskID& t_dep, AllReduce<Real>& update_norm)
+// {
 //     TaskID t_none(0);
 
 //     auto pkg = md->GetMeshPointer()->packages.Get("B_Cleanup");
