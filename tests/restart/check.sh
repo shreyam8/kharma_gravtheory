@@ -7,3 +7,5 @@ conda activate pyharm
 KHARMADIR=../..
 
 python3 $KHARMADIR/scripts/compare.py torus.out0.final.init.phdf torus.out0.final.restart.phdf init_vs_restart
+
+h5diff --exclude-path /Info --exclude-path /Input torus.out0.final.init.phdf torus.out0.final.restart.phdf

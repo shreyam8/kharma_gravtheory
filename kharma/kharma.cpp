@@ -86,7 +86,7 @@ void KHARMA::ResetGlobals(ParameterInput *pin, Mesh *pmesh)
     // This needs to be reset to guarantee that EstimateTimestep doesn't try to
     // calculate a new dt from a blank 'ctop' variable,
     // just uses whatever the next step was going to be at reset
-    params.Update("in_loop", false);
+    //params.Update("in_loop", false);
 
     // Everything else is a per-step variable, not per-run, so they're fine
     // to be restored by Parthenon
