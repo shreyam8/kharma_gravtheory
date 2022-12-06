@@ -118,10 +118,6 @@ void ReadIharmRestartHeader(std::string fname, std::unique_ptr<ParameterInput>& 
             pin->SetString("coordinates", "transform", "funky");
         }
 
-        pin->SetPrecise("parthenon/mesh", "x2min", 0.0);
-        pin->SetPrecise("parthenon/mesh", "x2max", 1.0);
-        pin->SetPrecise("parthenon/mesh", "x3min", 0.0);
-        pin->SetPrecise("parthenon/mesh", "x3max", 2*M_PI);
 
         // All MKS sims had the usual bcs
         pin->SetString("parthenon/mesh", "ix1_bc", "outflow");
@@ -131,21 +127,6 @@ void ReadIharmRestartHeader(std::string fname, std::unique_ptr<ParameterInput>& 
         pin->SetString("parthenon/mesh", "ix3_bc", "periodic");
         pin->SetString("parthenon/mesh", "ox3_bc", "periodic");
     } else if (hdf5_exists("x1Min")) {
-        double x1min, x2min, x3min;
-        double x1max, x2max, x3max;
-        hdf5_read_single_val(&x1min, "x1Min", H5T_IEEE_F64LE);
-        hdf5_read_single_val(&x1max, "x1Max", H5T_IEEE_F64LE);
-        hdf5_read_single_val(&x2min, "x2Min", H5T_IEEE_F64LE);
-        hdf5_read_single_val(&x2max, "x2Max", H5T_IEEE_F64LE);
-        hdf5_read_single_val(&x3min, "x3Min", H5T_IEEE_F64LE);
-        hdf5_read_single_val(&x3max, "x3Max", H5T_IEEE_F64LE);
-        pin->SetPrecise("parthenon/mesh", "x1min", x1min);
-        pin->SetPrecise("parthenon/mesh", "x1max", x1max);
-        pin->SetPrecise("parthenon/mesh", "x2min", x2min);
-        pin->SetPrecise("parthenon/mesh", "x2max", x2max);
-        pin->SetPrecise("parthenon/mesh", "x3min", x3min);
-        pin->SetPrecise("parthenon/mesh", "x3max", x3max);
-
         // Sims like this were of course cartesian
         pin->SetString("coordinates", "base", "cartesian_minkowski");
         pin->SetString("coordinates", "transform", "null");
@@ -160,6 +141,22 @@ void ReadIharmRestartHeader(std::string fname, std::unique_ptr<ParameterInput>& 
     } else {
         throw std::runtime_error("Unknown restart file format!");
     }
+
+    // New input files always list these, take advantage
+    double x1min, x2min, x3min;
+    double x1max, x2max, x3max;
+    hdf5_read_single_val(&x1min, "x1Min", H5T_IEEE_F64LE);
+    hdf5_read_single_val(&x1max, "x1Max", H5T_IEEE_F64LE);
+    hdf5_read_single_val(&x2min, "x2Min", H5T_IEEE_F64LE);
+    hdf5_read_single_val(&x2max, "x2Max", H5T_IEEE_F64LE);
+    hdf5_read_single_val(&x3min, "x3Min", H5T_IEEE_F64LE);
+    hdf5_read_single_val(&x3max, "x3Max", H5T_IEEE_F64LE);
+    pin->SetPrecise("parthenon/mesh", "x1min", x1min);
+    pin->SetPrecise("parthenon/mesh", "x1max", x1max);
+    pin->SetPrecise("parthenon/mesh", "x2min", x2min);
+    pin->SetPrecise("parthenon/mesh", "x2max", x2max);
+    pin->SetPrecise("parthenon/mesh", "x3min", x3min);
+    pin->SetPrecise("parthenon/mesh", "x3max", x3max);
 
     // End HDF5 reads
     hdf5_close();
