@@ -395,6 +395,6 @@ void KHARMA::FillOutput(MeshBlock *pmb, ParameterInput *pin)
         B_CD::FillOutput(pmb, pin);
     if (pmb->packages.AllPackages().count("Electrons"))
         Electrons::FillOutput(pmb, pin);
-    Flag("Filled");
+    Flag("Filled all outputs");
 }
 

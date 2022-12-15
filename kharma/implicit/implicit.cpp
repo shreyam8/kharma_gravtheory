@@ -167,7 +167,7 @@ std::shared_ptr<StateDescriptor> Implicit::Initialize(ParameterInput *pin)
 #include <batched/dense/KokkosBatched_ApplyQ_Decl.hpp>
 #include <batched/dense/KokkosBatched_Trsv_Decl.hpp>
 
-TaskStatus Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_sub_step_init, MeshData<Real> *md_flux_src,
+TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_sub_step_init, MeshData<Real> *md_flux_src,
                 MeshData<Real> *md_linesearch, MeshData<Real> *md_solver, const Real& dt)
 {
     Flag(md_full_step_init, "Implicit Iteration start, full step");
@@ -252,7 +252,7 @@ TaskStatus Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_sub_step_i
     auto& solve_norm_all = md_solver->PackVariables(std::vector<std::string>{"solve_norm"});
     auto& solve_fail_all = md_solver->PackVariables(std::vector<std::string>{"solve_fail"});
     // auto& solve_fail_all = md_solver->GetBlockData(0)->Get("solve_fail").data;
-    
+
     // if (save_residual) {
     //     auto& residual_all = md_solver->GetBlockData(0)->Get("residual").data;
     // }
@@ -484,7 +484,7 @@ TaskStatus Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_sub_step_i
                                 lambda          = lambda * (1 - condition) + (condition * lambda_new);
 
                                 // Check if new solution has converged within required tolerance
-                                if (condition == 0) break;                           
+                                if (condition == 0) break;
                             }
                         }
 
