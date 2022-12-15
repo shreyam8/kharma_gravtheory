@@ -181,7 +181,7 @@ inline bool IsDomainBound(MeshBlock *pmb, BoundaryFace face)
  */
 #if TRACE
 #define PRINTCORNERS 0
-#define PRINTZONE 1
+#define PRINTZONE 0
 inline void PrintCorner(MeshBlockData<Real> *rc)
 {
     auto rhop = rc->Get("prims.rho").data.GetHostMirrorAndCopy();

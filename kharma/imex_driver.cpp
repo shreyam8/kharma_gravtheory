@@ -301,13 +301,13 @@ TaskCollection ImexDriver::MakeTaskCollection(BlockList_t &blocks, int stage)
     for (int i = 0; i < blocks.size(); i++) {
         auto &pmb = blocks[i];
         auto &tl  = async_region1[i];
-        auto &mbd_sub_step_init  = pmb->meshblock_data.Get(stage_name[stage-1]);
         auto &mbd_sub_step_final = pmb->meshblock_data.Get(stage_name[stage]);
 
         // Note that floors are applied (to all variables!) immediately after this FillDerived call.
-        // However, it is *not* immediately corrected with FixUtoP, but synchronized (including pflags!) first.
+        // However, inversion/floor inversion failures are *not* immediately corrected with FixUtoP,
+        // but synchronized (including pflags!) first.
         // With an extra ghost zone, this *should* still allow binary-similar evolution between numbers of mesh blocks,
-        // but hasn't been tested.
+        // but hasn't been tested to do so yet.
         auto t_fill_derived = tl.AddTask(t_none, Update::FillDerived<MeshBlockData<Real>>, mbd_sub_step_final.get());
     }
 
@@ -340,9 +340,9 @@ TaskCollection ImexDriver::MakeTaskCollection(BlockList_t &blocks, int stage)
         auto t_set_bc = tl.AddTask(t_fix_derived, parthenon::ApplyBoundaryConditions, mbd_sub_step_final);
 
         // Electron heating goes where it does in HARMDriver, for the same reasons
-        auto t_heat_electrons = t_fix_derived;
+        auto t_heat_electrons = t_set_bc;
         if (use_electrons) {
-            t_heat_electrons = tl.AddTask(t_fix_derived, Electrons::ApplyElectronHeating, 
+            t_heat_electrons = tl.AddTask(t_set_bc, Electrons::ApplyElectronHeating, 
                                         mbd_sub_step_init.get(), mbd_sub_step_final.get());
         }
 
