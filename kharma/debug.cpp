@@ -123,6 +123,7 @@ TaskStatus CheckNaN(MeshData<Real> *md, int dir, IndexDomain domain)
         KOKKOS_LAMBDA_MESH_3D_REDUCE_INT {
             if (m::isnan(ctop(b, dir-1, k, j, i))) {
                 ++local_result;
+                printf("ctop NaN at %d %d %d along dir %d\n", i, j, k, dir); // EDIT
             }
         }
     , nan_reducer);
@@ -141,7 +142,7 @@ TaskStatus CheckNaN(MeshData<Real> *md, int dir, IndexDomain domain)
 
     if (MPIRank0() && (nzero > 0 || nnan > 0)) {
         // TODO string formatting in C++ that doesn't suck
-        fprintf(stderr, "Max signal speed ctop was 0 or NaN, direction %d (%d zero, %d NaN)", dir, nzero, nnan);
+        printf("Max signal speed ctop was 0 or NaN, direction %d (%d zero, %d NaN)", dir, nzero, nnan);
         throw std::runtime_error("Bad ctop!");
     }
 

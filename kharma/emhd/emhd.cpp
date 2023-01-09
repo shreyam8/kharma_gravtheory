@@ -64,18 +64,23 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin, Packages_t pack
     // We share implementations in one function, controlled by these parameters
     // These are always necessary for performing EGRMHD.
 
-    bool higher_order_terms = pin->GetOrAddBoolean("emhd", "higher_order_terms", false);
+    bool higher_order_terms  = pin->GetOrAddBoolean("emhd", "higher_order_terms", false);
     std::string closure_type = pin->GetOrAddString("emhd", "closure_type", "torus");
 
-    Real tau = pin->GetOrAddReal("emhd", "tau", 1.0);
+    // Should the EMHD sector feedback onto the ideal MHD variables? The default is 'yes'.
+    // So far it's just the viscous Bondi problem that doesn't require feedback
+    bool feedback = pin->GetOrAddBoolean("emhd", "feedback", true);
+
+    Real tau              = pin->GetOrAddReal("emhd", "tau", 1.0);
     Real conduction_alpha = pin->GetOrAddReal("emhd", "conduction_alpha", 1.0);
-    Real viscosity_alpha = pin->GetOrAddReal("emhd", "viscosity_alpha", 1.0);
+    Real viscosity_alpha  = pin->GetOrAddReal("emhd", "viscosity_alpha", 1.0);
     
     Real kappa = pin->GetOrAddReal("emhd", "kappa", 1.0);
     Real eta   = pin->GetOrAddReal("emhd", "eta", 1.0);
 
     EMHD_parameters emhd_params;
     emhd_params.higher_order_terms = higher_order_terms;
+    emhd_params.feedback           = feedback;
     if (closure_type == "constant") { 
         emhd_params.type = ClosureType::constant;
     } else if (closure_type == "sound_speed" || closure_type == "soundspeed") {
@@ -104,7 +109,7 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin, Packages_t pack
     // Floors specific to EMHD calculations? Currently only need to enforce bsq>0 in one denominator
 
     MetadataFlag isPrimitive = packages.Get("GRMHD")->Param<MetadataFlag>("PrimitiveFlag");
-    MetadataFlag isEMHD = Metadata::AllocateNewFlag("EMHDFlag");
+    MetadataFlag isEMHD      = Metadata::AllocateNewFlag("EMHDFlag");
     params.Add("EMHDFlag", isEMHD);
 
     // General options for primitive and conserved scalar variables in ImEx driver

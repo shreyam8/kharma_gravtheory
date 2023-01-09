@@ -169,7 +169,7 @@ TaskCollection HARMDriver::MakeTaskCollection(BlockList_t &blocks, int stage)
         // ADD SOURCES TO CONSERVED VARIABLES
         // Source term for GRMHD, \Gamma * T
         
-        auto t_grmhd_source = tl.AddTask(t_flux_div, GRMHD::AddSource, mc0.get(), mdudt.get(), stage == 1);
+        auto t_grmhd_source = tl.AddTask(t_flux_div, Flux::AddSource, mc0.get(), mdudt.get());
         // Source term for constraint-damping.  Applied only to B
         auto t_b_cd_source = t_grmhd_source;
         if (use_b_cd) {
@@ -200,10 +200,6 @@ TaskCollection HARMDriver::MakeTaskCollection(BlockList_t &blocks, int stage)
                                     mc0.get(), mc0.get(), 1.0, 0.0, mc1.get());
         
         KBoundaries::AddBoundarySync(t_copy_prims, tl, mc1);
-        // if (pmesh->multilevel) {
-        //     auto t_restrict = tl.AddTask(t_bound_sync, parthenon::cell_centered_refinement::RestrictPhysicalBounds, mc1.get());
-        //     tl.AddTask(t_restrict, ProlongateBoundaries, mc1);
-        // }
     }
 
     // Async Region: Fill primitive values, apply physical boundary conditions,
