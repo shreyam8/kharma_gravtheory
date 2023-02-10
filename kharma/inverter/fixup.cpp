@@ -32,17 +32,18 @@
  *  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "grmhd.hpp"
+#include "inverter.hpp"
 
 #include "floors.hpp"
+#include "floors_functions.hpp"
 #include "flux_functions.hpp"
 #include "pack.hpp"
 
-// Version of PLOOP guaranteeing specifically the 5 GRMHD fixup-amenable primitive vars
+// Version of "PLOOP" guaranteeing specifically the 5 GRMHD fixup-amenable primitive vars
 #define NPRIM 5
 #define PRIMLOOP for(int p=0; p < NPRIM; ++p)
 
-TaskStatus GRMHD::FixUtoP(MeshBlockData<Real> *rc)
+TaskStatus Inverter::FixUtoP(MeshBlockData<Real> *rc)
 {
     // We expect primitives all the way out to 3 ghost zones on all sides.
     // But we can only fix primitives with their neighbors.
@@ -51,9 +52,12 @@ TaskStatus GRMHD::FixUtoP(MeshBlockData<Real> *rc)
     Flag(rc, "Fixing U to P inversions");
     auto pmb = rc->GetBlockPointer();
     const auto& G = pmb->coords;
+    // TODO does this mean fixup should be in the floors package, or its own?
+    if (!pmb->packages.AllPackages().count("Floors"))
+        return TaskStatus::complete;
 
-    // TODO what should be averaged on a fixup? Just these core 5 prims?
-    // Should there be a flag to do more?
+
+    // Only fixup the core 5 prims
     auto P = GRMHD::PackHDPrims(rc);
 
     GridScalar pflag = rc->Get("pflag").data;
@@ -61,7 +65,7 @@ TaskStatus GRMHD::FixUtoP(MeshBlockData<Real> *rc)
 
     const auto& pars = pmb->packages.Get("GRMHD")->AllParams();
     const Real gam = pars.Get<Real>("gamma");
-    const int verbose = pars.Get<int>("verbose");
+    const int verbose = pmb->packages.Get("Globals")->Param<int>("verbose");
     const Floors::Prescription floors(pmb->packages.Get("Floors")->AllParams());
 
     // Just as UtoP needs to be applied over all zones, it needs to be fixed over all zones
@@ -77,9 +81,9 @@ TaskStatus GRMHD::FixUtoP(MeshBlockData<Real> *rc)
     // TODO attempt to recover from entropy here if it's present
 
     pmb->par_for("fix_U_to_P", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-        KOKKOS_LAMBDA_3D {
+        KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
             // Negative flags mark physical corners, which shouldn't be fixed
-            if (((int) pflag(k, j, i)) > InversionStatus::success) {
+            if (failed(pflag(k, j, i))) {
                 // Luckily fixups are rare, so we don't have to worry about optimizing this too much
                 double wsum = 0., wsum_x = 0.;
                 double sum[NPRIM] = {0.}, sum_x[NPRIM] = {0.};
@@ -93,8 +97,8 @@ TaskStatus GRMHD::FixUtoP(MeshBlockData<Real> *rc)
                                 // Weight by distance
                                 double w = 1./(m::abs(l) + m::abs(m) + m::abs(n) + 1);
 
-                                // Count only the good cells, if we can
-                                if (((int) pflag(kk, jj, ii)) == InversionStatus::success) {
+                                // Count only the good cells (not failed AND not corner), if we can
+                                if (((int) pflag(kk, jj, ii)) == (int) Status::success) {
                                     // Weight by distance.  Note interpolated "fixed" cells stay flagged
                                     wsum += w;
                                     PRIMLOOP sum[p] += w * P(p, kk, jj, ii);
@@ -131,8 +135,8 @@ TaskStatus GRMHD::FixUtoP(MeshBlockData<Real> *rc)
     const int nvar = P.GetDim(4);
 
     pmb->par_for("fix_U_to_P_floors", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-        KOKKOS_LAMBDA_3D {
-            if (((int) pflag(k, j, i)) > InversionStatus::success) {
+        KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
+            if (failed(pflag(k, j, i))) {
                 apply_geo_floors(G, P, m_p, gam, k, j, i, floors);
 
                 // Make sure to keep lockstep

@@ -31,80 +31,22 @@
  *  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  *  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#pragma once
+#include "flux.hpp"
 
-#include "decs.hpp"
-
-#include <parthenon/parthenon.hpp>
-
-#include "debug.hpp"
-#include "floors.hpp"
-#include "flux_functions.hpp"
-#include "pack.hpp"
-#include "reconstruction.hpp"
-#include "types.hpp"
-
-// Package functions
-#include "emhd.hpp"
-#include "grmhd_functions.hpp"
-#include "b_flux_ct.hpp"
-#include "b_cd.hpp"
-#include "electrons.hpp"
+#include "floors_functions.hpp"
 
 namespace Flux {
+
 /**
- * Calculate dU/dt from a set of fluxes.
- * This combines Parthenon's "FluxDivergence" operation with the GRMHD source term
- * It also allows adding an arbitrary "wind" source term for stability
+ * @brief Reconstruct the values of primitive variables at left and right of each zone face,
+ * find the corresponding conserved variables and their fluxes through the face
  *
- * @param rc is the current stage's container
- * @param dudt is the base container containing the global dUdt term
- */
-TaskStatus ApplyFluxes(MeshData<Real> *md, MeshData<Real> *mdudt);
-
-/**
- * Fill all conserved variables (U) from primitive variables (P), over the whole grid.
- * Second declaration is for Parthenon's benefit, similar to e.g.
- * declaring UtoP vs FillDerived in GRMHD package.
- */
-TaskStatus PtoU(MeshBlockData<Real> *rc, IndexDomain domain=IndexDomain::interior);
-// The task version is generally used in the MeshBlock/end portion of a step *after* the boundary sync.
-// Therefore it defaults to the entire domain, incl. ghost zones.
-inline TaskStatus PtoUTask(MeshBlockData<Real> *rc, IndexDomain domain=IndexDomain::entire) { return PtoU(rc, domain); }
-
-/**
- * Function to compute and apply the source terms to internal energy and velocity conserved vars over the entire grid.
- */
-TaskStatus AddSource(MeshData<Real> *md, MeshData<Real> *mdudt);
-
-// Fluxes a.k.a. "Approximate Riemann Solvers"
-// More complex solvers require speed estimates not calculable completely from
-// invariants, necessitating frame transformations and related madness.
-// These have identical signatures, so that we could runtime relink w/variant like coordinate_embedding
-
-// Local Lax-Friedrichs flux (usual, more stable)
-KOKKOS_INLINE_FUNCTION Real llf(const Real& fluxL, const Real& fluxR, const Real& cmax, 
-                                const Real& cmin, const Real& Ul, const Real& Ur)
-{
-    Real ctop = m::max(cmax, cmin);
-    return 0.5 * (fluxL + fluxR - ctop * (Ur - Ul));
-}
-// Harten, Lax, van Leer, & Einfeldt flux (early problems but not extensively studied since)
-KOKKOS_INLINE_FUNCTION Real hlle(const Real& fluxL, const Real& fluxR, const Real& cmax,
-                                const Real& cmin, const Real& Ul, const Real& Ur)
-{
-    return (cmax*fluxL + cmin*fluxR - cmax*cmin*(Ur - Ul)) / (cmax + cmin);
-}
-
-/**
- * Reconstruct the values of primitive variables at left and right zone faces,
- * find the corresponding conserved variables and their fluxes through the zone faces
+ * @param md the current stage MeshData container, holding pointers to all variable data
  *
- * @param rc the current stage container, holding pointers to all variable data
- * 
- * Memory-wise, this fills the "flux" portions of the "conserved" fields.  All fluxes are applied
- * together "ApplyFluxes," and the final fields are calculated by Parthenon in 
- * Also fills the "ctop" vector with the signal speed mhd_vchar -- used to estimate timestep later.
+ * Memory-wise, this fills the "flux" portions of the "conserved" fields.  These will be used
+ * over the course of the step to calculate an update to the zone-centered values.
+ * This function also fills the "ctop" vector with the signal speed mhd_vchar,
+ * used to estimate the timestep later.
  * 
  * This function is defined in the header because it is templated on the reconstruction scheme and
  * direction.  Since there are only a few reconstruction schemes supported, and we will only ever
@@ -112,7 +54,7 @@ KOKKOS_INLINE_FUNCTION Real hlle(const Real& fluxL, const Real& fluxR, const Rea
  * This allows some extra optimization from knowing that dir != 0 in parcticular, and inlining
  * the particular reconstruction call we need.
  */
-template <ReconstructionType Recon, int dir>
+template <KReconstruction::Type Recon, int dir>
 inline TaskStatus GetFlux(MeshData<Real> *md)
 {
     Flag(md, "Recon and flux");
@@ -125,35 +67,35 @@ inline TaskStatus GetFlux(MeshData<Real> *md)
     if (ndim < 2 && dir == X2DIR) return TaskStatus::complete;
 
     // Options
-    const auto& pars       = pmb0->packages.Get("GRMHD")->AllParams();
+    const auto& pars       = pmb0->packages.Get("Driver")->AllParams();
+    const auto& mhd_pars   = pmb0->packages.Get("GRMHD")->AllParams();
     const auto& globals    = pmb0->packages.Get("Globals")->AllParams();
-    const auto& floor_pars = pmb0->packages.Get("Floors")->AllParams();
     const bool use_hlle    = pars.Get<bool>("use_hlle");
-    // Apply post-reconstruction floors.
-    // Only enabled for WENO since it is not TVD, and only when other
-    // floors are enabled.
-    const bool reconstruction_floors = (Recon == ReconstructionType::weno5)
-                                       && !floor_pars.Get<bool>("disable_floors");
-    // Pull out a struct of just the actual floor values for speed
-    const Floors::Prescription floors(floor_pars);
-    // Check presence of different packages
-    const auto& pkgs = pmb0->packages.AllPackages();
-    const bool use_b_flux_ct = pkgs.count("B_FluxCT");
-    const bool use_b_cd      = pkgs.count("B_CD");
-    const bool use_electrons = pkgs.count("Electrons");
-    const bool use_emhd      = pkgs.count("EMHD");
-    // Pull flag indicating primitive variables
-    const MetadataFlag isPrimitive = pars.Get<MetadataFlag>("PrimitiveFlag");
 
-    const Real gam = pars.Get<Real>("gamma");
-    const double ctop_max = (use_b_cd) ? globals.Get<Real>("ctop_max_last") : 0.0;
-
-    EMHD::EMHD_parameters emhd_params_tmp;
-    if (use_emhd) {
-        const auto& emhd_pars = pmb0->packages.Get("EMHD")->AllParams();
-        emhd_params_tmp = emhd_pars.Get<EMHD::EMHD_parameters>("emhd_params");
+    const bool reconstruction_floors = pmb0->packages.AllPackages().count("Floors") &&
+                                       (Recon == KReconstruction::Type::weno5);
+    Floors::Prescription floors_temp;
+    if (reconstruction_floors) {
+        // Apply post-reconstruction floors.
+        // Only enabled for WENO since it is not TVD, and only when other
+        // floors are enabled.
+        const auto& floor_pars = pmb0->packages.Get("Floors")->AllParams();
+        // Pull out a struct of just the actual floor values for speed
+        floors_temp = Floors::Prescription(floor_pars);
     }
-    const EMHD::EMHD_parameters& emhd_params = emhd_params_tmp;
+    const Floors::Prescription& floors = floors_temp;
+
+    // Pull flag indicating primitive variables
+    const MetadataFlag isPrimitive = mhd_pars.Get<MetadataFlag>("PrimitiveFlag");
+
+    const Real gam = mhd_pars.Get<Real>("gamma");
+
+    // Check whether we're using constraint-damping
+    // (which requires that a variable be propagated at ctop_max)
+    const bool use_b_cd = pmb0->packages.AllPackages().count("B_CD");
+    const double ctop_max = (use_b_cd) ? pmb0->packages.Get("B_CD")->Param<Real>("ctop_max_last") : 0.0;
+
+    const EMHD::EMHD_parameters& emhd_params = EMHD::GetEMHDParameters(pmb0->packages);
 
     const Loci loc = loc_of(dir);
 
@@ -163,7 +105,7 @@ inline TaskStatus GetFlux(MeshData<Real> *md)
     const auto& P_all = md->PackVariables(std::vector<MetadataFlag>{isPrimitive}, prims_map);
     const auto& U_all = md->PackVariablesAndFluxes(std::vector<MetadataFlag>{Metadata::Conserved}, cons_map);
     const VarMap m_u(cons_map, true), m_p(prims_map, false);
-    Flag(md, "Packed variables");
+    //Flag(md, "Packed variables");
 
     // Get sizes
     const int n1 = pmb0->cellbounds.ncellsi(IndexDomain::entire);
@@ -175,10 +117,10 @@ inline TaskStatus GetFlux(MeshData<Real> *md)
     // 1-zone halo in nontrivial dimensions
     // We leave is/ie, js/je, ks/ke with their usual definitions for consistency, and define
     // the loop bounds separately to include the appropriate halo
-    int halo = 1;
-    const IndexRange il = IndexRange{ib.s - halo, ib.e + halo};
-    const IndexRange jl = (ndim > 1) ? IndexRange{jb.s - halo, jb.e + halo} : jb;
-    const IndexRange kl = (ndim > 2) ? IndexRange{kb.s - halo, kb.e + halo} : kb;
+    // TODO halo 2 "shouldn't" crash but does.  Artifact of switch to faces?
+    const IndexRange il = IndexRange{ib.s - 1, ib.e + 1};
+    const IndexRange jl = (ndim > 1) ? IndexRange{jb.s - 1, jb.e + 1} : jb;
+    const IndexRange kl = (ndim > 2) ? IndexRange{kb.s - 1, kb.e + 1} : kb;
 
     // Allocate scratch space
     const int scratch_level = 1; // 0 is actual scratch (tiny); 1 is HBM
@@ -187,8 +129,8 @@ inline TaskStatus GetFlux(MeshData<Real> *md)
     // Allocate enough to cache prims, conserved, and fluxes, for left and right faces,
     // plus temporaries inside reconstruction (most use 1, WENO5 uses none, linear_vl uses a bunch)
     // Then add cmax and cmin!
-    const size_t total_scratch_bytes = (6 + 1*(Recon != ReconstructionType::weno5) +
-                                            4*(Recon == ReconstructionType::linear_vl)) * var_size_in_bytes
+    const size_t total_scratch_bytes = (6 + 1*(Recon != KReconstruction::Type::weno5) +
+                                            4*(Recon == KReconstruction::Type::linear_vl)) * var_size_in_bytes
                                         + 2 * speed_size_in_bytes;
 
     Flag(md, "Flux kernel");
@@ -342,4 +284,5 @@ inline TaskStatus GetFlux(MeshData<Real> *md)
     Flag(md, "Finished recon and flux");
     return TaskStatus::complete;
 }
-}
+
+} // Flux

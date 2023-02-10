@@ -38,7 +38,6 @@
 #include "debug.hpp"
 #include "hdf5_utils.h"
 #include "kharma_utils.hpp"
-#include "mpi.hpp"
 #include "interpolation.hpp"
 #include "types.hpp"
 
@@ -232,7 +231,7 @@ void ReadIharmRestartHeader(std::string fname, std::unique_ptr<ParameterInput>& 
     }
 }
 
-TaskStatus ReadIharmRestart(MeshBlockData<Real> *rc, ParameterInput *pin)
+TaskStatus ReadIharmRestart(std::shared_ptr<MeshBlockData<Real>>& rc, ParameterInput *pin)
 {
     Flag(rc, "Restarting from iharm3d checkpoint file");
 

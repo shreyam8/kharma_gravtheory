@@ -1,5 +1,5 @@
 /* 
- *  File: U_to_P.hpp
+ *  File: onedw.hpp
  *  
  *  BSD 3-Clause License
  *  
@@ -33,41 +33,76 @@
  */
 #pragma once
 
-#include "decs.hpp"
+// General template
+// We define a specialization based on the Inverter::Type parameter
+#include "invert_template.hpp"
 
+#include "grmhd_functions.hpp"
 #include "kharma_utils.hpp"
 
+namespace Inverter {
+
+// TODO TODO MOVE AWAY
 // Accuracy required for U to P
-#define UTOP_ERRTOL 1.e-8
+static constexpr Real UTOP_ERRTOL = 1.e-8;
 // Maximum iterations when doing U to P inversion
-#define UTOP_ITER_MAX 8
+static constexpr int  UTOP_ITER_MAX = 8;
 // Heuristic step size
-#define DELTA 1e-5
+static constexpr Real DELTA = 1e-5;
 
-namespace GRMHD {
-
-KOKKOS_INLINE_FUNCTION Real err_eqn(const Real& gam, const Real& Bsq, const Real& D, const Real& Ep, const Real& QdB,
-                                    const Real& Qtsq, const Real& Wp, InversionStatus& eflag);
+// Could put support fns in their own namespace, but I'm lazy
+/**
+ * Fluid relativistic factor gamma in terms of inversion state variables of the Noble 1D_W inverter
+ */
 KOKKOS_INLINE_FUNCTION Real lorentz_calc_w(const Real& Bsq, const Real& D, const Real& QdB,
-                                        const Real& Qtsq, const Real& Wp);
+                                           const Real& Qtsq, const Real& Wp)
+{
+    const Real QdBsq = QdB * QdB;
+    const Real W = Wp + D;
+    const Real W2 = W * W;
+    const Real WB = W + Bsq;
+
+    // This is basically inversion of eq. A7 of Mignone & McKinney
+    const Real utsq = -((W + WB) * QdBsq + W2 * Qtsq) / (QdBsq * (W + WB) + W2 * (Qtsq - WB * WB));
+
+    // Catch utsq < 0 and YELL
+    // TODO latter number should be ~1e3*GAMMAMAX^2
+    if (utsq < -1.e-15 || utsq > 1.e7) {
+        return -1.; // This will trigger caller to return an error immediately
+    } else {
+        return m::sqrt(1. + m::abs(utsq));
+    }
+}
 
 /**
- * Recover local primitive variables, with a one-dimensional Newton-Raphson iterative solver.
- * Iteration starts from the current primitive values, and otherwse may *fail to converge*
- * 
- * Returns a code indicating whether the solver converged (success), failed (max_iter), or
- * indicating that the converged solution was unphysical (bad_ut, neg_rhou, neg_rho, neg_u)
- * 
- * On error, will not write replacement values, leaving the previous step's values in place
- * These are fixed later, in FixUtoP
+ * Error metric for Newton-Raphson step in Noble 1D_W inverter
  */
-KOKKOS_INLINE_FUNCTION InversionStatus u_to_p(const GRCoordinates &G, const VariablePack<Real>& U, const VarMap& m_u,
-                                              const Real& gam, const int& k, const int& j, const int& i, const Loci loc,
-                                              const VariablePack<Real>& P, const VarMap& m_p)
+KOKKOS_INLINE_FUNCTION Real err_eqn(const Real& gam, const Real& Bsq, const Real& D, const Real& Ep, const Real& QdB,
+                                    const Real& Qtsq, const Real& Wp, Status& eflag)
+{
+    const Real W = Wp + D;
+    const Real gamma = lorentz_calc_w(Bsq, D, QdB, Qtsq, Wp);
+    if (gamma < 1) eflag = Status::bad_ut;
+    const Real w = W / m::pow(gamma,2);
+    const Real rho = D / gamma;
+    const Real p = (w - rho) * (gam - 1) / gam;
+
+    return -Ep + Wp - p + 0.5 * Bsq + 0.5 * (Bsq * Qtsq - QdB * QdB) / m::pow((Bsq + W), 2);
+
+}
+
+/**
+ * 1D_W inverter from Ressler et al. 2006.
+ */
+template <>
+KOKKOS_INLINE_FUNCTION Status u_to_p<Type::onedw>(const GRCoordinates &G, const VariablePack<Real>& U, const VarMap& m_u,
+                                              const Real& gam, const int& k, const int& j, const int& i,
+                                              const VariablePack<Real>& P, const VarMap& m_p,
+                                              const Loci loc)
 {
     // Catch negative density
     if (U(m_u.RHO, k, j, i) <= 0.) {
-        return InversionStatus::neg_input;
+        return Status::neg_input;
     }
 
     // Convert from conserved variables to four-vectors
@@ -111,13 +146,13 @@ KOKKOS_INLINE_FUNCTION InversionStatus u_to_p(const GRCoordinates &G, const Vari
     // Numerical rootfinding
 
     // Accumulator for errors in err_eqn
-    InversionStatus eflag = InversionStatus::success;
+    Status eflag = Status::success;
 
     // Initial guess from primitives:
     Real Wp, err;
     {
         const Real gamma = GRMHD::lorentz_calc(G, P, m_p, k, j, i, loc);
-        if (gamma < 1) return InversionStatus::bad_ut;
+        if (gamma < 1) return Status::bad_ut;
         const Real rho = P(m_p.RHO, k, j, i), u = P(m_p.UU, k, j, i);
 
         Wp = (rho + u + (gam - 1) * u) * gamma * gamma - rho * gamma;
@@ -136,7 +171,7 @@ KOKKOS_INLINE_FUNCTION InversionStatus u_to_p(const GRCoordinates &G, const Vari
         // Attempt a Halley/Muller/Bailey/Press step
         const Real dedW = (errp - errm) / (Wpp - Wpm);
         const Real dedW2 = (errp - 2. * err + errm) / m::pow(h,2);
-        // TODO look at this clip & the next vs iteration convergence %s
+        // TODO look into changing these clipped values?
         const Real f = clip(0.5 * err * dedW2 / m::pow(dedW,2), -0.3, 0.3);
 
         dW = clip(-err / dedW / (1. - f), -0.5*Wp, 2.0*Wp);
@@ -150,8 +185,7 @@ KOKKOS_INLINE_FUNCTION InversionStatus u_to_p(const GRCoordinates &G, const Vari
 
     // Not good enough?  apply secant method
     int iter = 0;
-    for (iter = 0; iter < UTOP_ITER_MAX; iter++)
-    {
+    for (iter = 0; iter < UTOP_ITER_MAX; iter++) {
         dW = clip((Wp1 - Wp) * err / (err - err1), (Real) -0.5*Wp, (Real) 2.0*Wp);
 
         Wp1 = Wp;
@@ -169,11 +203,11 @@ KOKKOS_INLINE_FUNCTION InversionStatus u_to_p(const GRCoordinates &G, const Vari
     // Uncomment to error on any bad velocity.  iharm2d/3d do not do this.
     //if (eflag) return eflag;
     // Return failure to converge
-    if (iter == UTOP_ITER_MAX) return InversionStatus::max_iter;
+    if (iter == UTOP_ITER_MAX) return Status::max_iter;
 
     // Find utsq, gamma, rho from Wp
     const Real gamma = lorentz_calc_w(Bsq, D, QdB, Qtsq, Wp);
-    if (gamma < 1) return InversionStatus::bad_ut;
+    if (gamma < 1) return Status::bad_ut;
 
     const Real rho = D / gamma;
     const Real W = Wp + D;
@@ -182,9 +216,9 @@ KOKKOS_INLINE_FUNCTION InversionStatus u_to_p(const GRCoordinates &G, const Vari
     const Real u = w - (rho + p);
 
     // Return without updating non-B primitives
-    if (rho < 0 && u < 0) return InversionStatus::neg_rhou;
-    else if (rho < 0) return InversionStatus::neg_rho;
-    else if (u < 0) return InversionStatus::neg_u;
+    if (rho < 0 && u < 0) return Status::neg_rhou;
+    else if (rho < 0) return Status::neg_rho;
+    else if (u < 0) return Status::neg_u;
 
     // Set primitives
     P(m_p.RHO, k, j, i) = rho;
@@ -196,45 +230,7 @@ KOKKOS_INLINE_FUNCTION InversionStatus u_to_p(const GRCoordinates &G, const Vari
     P(m_p.U2, k, j, i) = pre * (Qtcon[2] + QdB * Bcon[2] / W);
     P(m_p.U3, k, j, i) = pre * (Qtcon[3] + QdB * Bcon[3] / W);
 
-    return InversionStatus::success;
+    return Status::success;
 }
 
-// Document this
-KOKKOS_INLINE_FUNCTION Real err_eqn(const Real& gam, const Real& Bsq, const Real& D, const Real& Ep, const Real& QdB,
-                                    const Real& Qtsq, const Real& Wp, InversionStatus& eflag)
-{
-    const Real W = Wp + D;
-    const Real gamma = lorentz_calc_w(Bsq, D, QdB, Qtsq, Wp);
-    if (gamma < 1) eflag = InversionStatus::bad_ut;
-    const Real w = W / m::pow(gamma,2);
-    const Real rho = D / gamma;
-    const Real p = (w - rho) * (gam - 1) / gam;
-
-    return -Ep + Wp - p + 0.5 * Bsq + 0.5 * (Bsq * Qtsq - QdB * QdB) / m::pow((Bsq + W), 2);
-
-}
-
-/**
- * Fluid relativistic factor gamma in terms of inversion state variables
- */
-KOKKOS_INLINE_FUNCTION Real lorentz_calc_w(const Real& Bsq, const Real& D, const Real& QdB,
-                                           const Real& Qtsq, const Real& Wp)
-{
-    const Real QdBsq = QdB * QdB;
-    const Real W = Wp + D;
-    const Real W2 = W * W;
-    const Real WB = W + Bsq;
-
-    // This is basically inversion of eq. A7 of Mignone & McKinney
-    const Real utsq = -((W + WB) * QdBsq + W2 * Qtsq) / (QdBsq * (W + WB) + W2 * (Qtsq - WB * WB));
-
-    // Catch utsq < 0 and YELL
-    // TODO latter number should be ~1e3*GAMMAMAX^2
-    if (utsq < -1.e-15 || utsq > 1.e7) {
-        return -1.; // This will trigger caller to return an error immediately
-    } else {
-        return m::sqrt(1. + m::abs(utsq));
-    }
-}
-
-} // namespace GRMHD
+} // namespace Inverter

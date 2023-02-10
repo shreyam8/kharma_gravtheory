@@ -34,14 +34,14 @@
 
 #include "fm_torus.hpp"
 
-#include "mpi.hpp"
+#include "floors.hpp"
 #include "prob_common.hpp"
 #include "types.hpp"
 
 #include <random>
 #include "Kokkos_Random.hpp"
 
-TaskStatus InitializeFMTorus(MeshBlockData<Real> *rc, ParameterInput *pin)
+TaskStatus InitializeFMTorus(std::shared_ptr<MeshBlockData<Real>>& rc, ParameterInput *pin)
 {
     Flag(rc, "Initializing torus problem");
 
@@ -67,10 +67,10 @@ TaskStatus InitializeFMTorus(MeshBlockData<Real> *rc, ParameterInput *pin)
     const int ks = pmb->cellbounds.ks(domain), ke = pmb->cellbounds.ke(domain);
 
     // Get coordinate systems
-    // G clearly holds a reference to an existing system G.coords.base,
-    // but we don't know if it's KS or BL coordinates
-    // Since we can't create a system and assign later, we just
-    // rebuild copies of both based on the BH spin "a"
+    // Different coordinate systems do not inherit from a base
+    // class (see coordinate_systems.hpp, coordinate_embedding.hpp)
+    // so we can't cast or assign them like you'd expect.
+    // Instead we just create copies of each one we'll need.
     const auto& G              = pmb->coords;
     const bool use_ks          = G.coords.is_ks();
     const GReal a              = G.coords.get_a();
@@ -81,7 +81,7 @@ TaskStatus InitializeFMTorus(MeshBlockData<Real> *rc, ParameterInput *pin)
     Real l = lfish_calc(a, rmax);
 
     pmb->par_for("fm_torus_init", ks, ke, js, je, is, ie,
-        KOKKOS_LAMBDA_3D {
+        KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
             GReal Xnative[GR_DIM], Xembed[GR_DIM], Xmidplane[GR_DIM];
             G.coord(k, j, i, Loci::center, Xnative);
             G.coord_embed(k, j, i, Loci::center, Xembed);
@@ -164,7 +164,7 @@ TaskStatus InitializeFMTorus(MeshBlockData<Real> *rc, ParameterInput *pin)
 
     // If we print diagnostics, do so only from block 0 as the others do exactly the same thing
     // Since this is initialization, we are guaranteed to have a block 0
-    if (pmb->gid == 0 && pmb->packages.Get("GRMHD")->Param<int>("verbose") > 0) {
+    if (pmb->gid == 0 && pmb->packages.Get("Globals")->Param<int>("verbose") > 0) {
         std::cout << "Calculating maximum density:" << std::endl;
         std::cout << "a = " << a << std::endl;
         std::cout << "dx = " << dx << std::endl;
@@ -177,7 +177,7 @@ TaskStatus InitializeFMTorus(MeshBlockData<Real> *rc, ParameterInput *pin)
     Real rho_max = 0;
     Kokkos::Max<Real> max_reducer(rho_max);
     pmb->par_reduce("fm_torus_maxrho", 0, nx1,
-        KOKKOS_LAMBDA_1D_REDUCE {
+        KOKKOS_LAMBDA (const int &i, parthenon::Real &local_result) {
             GReal x1 = x1min + i*dx;
             //GReal x2 = x2min + j*dx;
             GReal Xnative[GR_DIM] = {0,x1,0,0};
@@ -197,22 +197,28 @@ TaskStatus InitializeFMTorus(MeshBlockData<Real> *rc, ParameterInput *pin)
     // Record and print normalization factor
     if(! (pmb->packages.Get("GRMHD")->AllParams().hasKey("rho_norm")))
         pmb->packages.Get("GRMHD")->AllParams().Add("rho_norm", rho_max);
-    if (pmb->gid == 0 && pmb->packages.Get("GRMHD")->Param<int>("verbose") > 0) {
+    if (pmb->gid == 0 && pmb->packages.Get("Globals")->Param<int>("verbose") > 0) {
         std::cout << "Initial maximum density is " << rho_max << std::endl;
     }
 
     pmb->par_for("fm_torus_normalize", ks, ke, js, je, is, ie,
-        KOKKOS_LAMBDA_3D {
+        KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
             rho(k, j, i) /= rho_max;
             u(k, j, i) /= rho_max;
         }
     );
 
+    // Apply floors to initialize the rest of the domain (regardless of the 'disable_floors' param)
+    // Since the conserved vars U are not initialized, this is done in *fluid frame*,
+    // even if NOF frame is chosen (iharm3d does the same iiuc)
+    // This is probably not a huge issue, just good to state explicitly
+    Floors::ApplyGRMHDFloors(rc.get(), IndexDomain::interior);
+
     return TaskStatus::complete;
 }
 
 // TODO move this to a different file
-TaskStatus PerturbU(MeshBlockData<Real> *rc, ParameterInput *pin)
+TaskStatus PerturbU(std::shared_ptr<MeshBlockData<Real>>& rc, ParameterInput *pin)
 {
     Flag(rc, "Applying U perturbation");
     auto pmb = rc->GetBlockPointer();
@@ -221,12 +227,12 @@ TaskStatus PerturbU(MeshBlockData<Real> *rc, ParameterInput *pin)
 
     const Real u_jitter = pin->GetReal("perturbation", "u_jitter");
     // Don't jitter values set by floors
-    const Real jitter_above_rho = pin->GetReal("floors", "rho_min_geom");
+    const Real jitter_above_rho = pin->GetReal("floors", "rho_min_geom") + 1e-10;
     // Note we add the MeshBlock gid to this value when seeding RNG,
     // to get a new sequence for every block
     const int rng_seed = pin->GetOrAddInteger("perturbation", "rng_seed", 31337);
     // Print real seed used for all blocks, to ensure they're different
-    if (pmb->packages.Get("GRMHD")->Param<int>("verbose") > 0) {
+    if (pmb->packages.Get("Globals")->Param<int>("verbose") > 0) {
         std::cout << "Seeding RNG in block " << pmb->gid << " with value " << rng_seed + pmb->gid << std::endl;
     }
     const bool serial = pin->GetOrAddInteger("perturbation", "serial", false);
@@ -255,7 +261,7 @@ TaskStatus PerturbU(MeshBlockData<Real> *rc, ParameterInput *pin)
         RandPoolType rand_pool(rng_seed + pmb->gid);
         typedef typename RandPoolType::generator_type gen_type;
         pmb->par_for("perturb_u", ks, ke, js, je, is, ie,
-            KOKKOS_LAMBDA_3D {
+            KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
                 if (rho(k, j, i) > jitter_above_rho) {
                     gen_type rgen = rand_pool.get_state();
                     u(k, j, i) *= 1. + Kokkos::rand<gen_type, Real>::draw(rgen, -u_jitter/2, u_jitter/2);

@@ -1,5 +1,5 @@
 /* 
- *  File: imex_driver.hpp
+ *  File: hubble.hpp
  *  
  *  BSD 3-Clause License
  *  
@@ -33,35 +33,30 @@
  */
 #pragma once
 
-#include <memory>
+#include <complex>
+
+#include "decs.hpp"
 
 #include <parthenon/parthenon.hpp>
 
+using namespace std;
 using namespace parthenon;
 
 /**
- * A Driver object orchestrates everything that has to be done to a mesh to constitute a step.
- * This driver does pretty much the same thing as the HARMDriver, with one important difference:
- * ImexDriver syncs primitive variables and treats them as fundamental, whereas HARMDriver syncs conserved variables.
- * This allows ImexDriver to optionally use a semi-implicit step, adding a per-zone implicit solve via the 'Implicit'
- * package, instead of just explicit RK2 time-stepping.  This driver also allows explicit-only RK2 operation
+ * Test of electron entropy/temperature evolution in 1D Hubble-type flow
+ * Test of "Electrons" package
+ * See Ressler+ 2015
  */
-class ImexDriver : public MultiStageDriver {
-    public:
-        /**
-         * Default constructor
-         */
-        ImexDriver(ParameterInput *pin, ApplicationInput *papp, Mesh *pm) : MultiStageDriver(pin, papp, pm) {}
+TaskStatus InitializeHubble(std::shared_ptr<MeshBlockData<Real>>& rc, ParameterInput *pin);
 
-        /**
-         * All the tasks which constitute advancing the fluid in a mesh by one stage.
-         * This includes calculation of the primitives and reconstruction of their face values,
-         * calculation of conserved values and fluxes thereof at faces,
-         * application of fluxes and a source term in order to update zone values,
-         * and finally calculation of the next timestep based on the CFL condition.
-         * 
-         * The function is heavily documented since order changes can introduce subtle bugs,
-         * usually w.r.t. fluid "state" being spread across the primitive and conserved quantities
-         */
-        TaskCollection MakeTaskCollection(BlockList_t &blocks, int stage);
-};
+/**
+ * Set all values on a given domain to the Hubble flow solution
+ * 
+ * Used for initialization and boundary conditions
+ */
+TaskStatus SetHubble(std::shared_ptr<MeshBlockData<Real>>& rc,IndexDomain domain, bool coarse=false);
+
+/**
+ * Apply the source term.  Registered as ApplyPrimSource to run at end of step, once per step operator-split
+ */
+void ApplyHubbleHeating(MeshBlockData<Real> *mbase);

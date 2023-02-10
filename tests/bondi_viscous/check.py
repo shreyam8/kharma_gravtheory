@@ -58,6 +58,7 @@ if __name__=='__main__':
 
 	# MEASURE CONVERGENCE
 	L1 = np.array(L1)
+	print(L1)
 	powerfits = [0.,]*NVAR
 	fail = 0
 	for k in range(NVAR):

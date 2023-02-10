@@ -57,7 +57,7 @@ using namespace parthenon;
  * Generally this is what we want for tests (run by 1 cycle and compare).
  * Modify function or reset tlim after to override.
  */
-TaskStatus InitializeMHDModes(MeshBlockData<Real> *rc, ParameterInput *pin)
+TaskStatus InitializeMHDModes(std::shared_ptr<MeshBlockData<Real>>& rc, ParameterInput *pin)
 {
     Flag(rc, "Initializing MHD Modes problem");
     auto pmb = rc->GetBlockPointer();
@@ -71,6 +71,10 @@ TaskStatus InitializeMHDModes(MeshBlockData<Real> *rc, ParameterInput *pin)
     const int nmode = pin->GetOrAddInteger("mhdmodes", "nmode", 1);
     const int dir = pin->GetOrAddInteger("mhdmodes", "dir", 0);
     const bool one_period = pin->GetOrAddBoolean("mhdmodes", "one_period", true);
+
+    // if (pin->GetInteger("parthenon/mesh", "nx1")) {
+    //     dir = 3;
+    // }
 
     // START POSSIBLE ARGS: take all these as parameters in pin?
     // Mean state
@@ -249,7 +253,7 @@ TaskStatus InitializeMHDModes(MeshBlockData<Real> *rc, ParameterInput *pin)
     IndexRange jb = pmb->cellbounds.GetBoundsJ(domain);
     IndexRange kb = pmb->cellbounds.GetBoundsK(domain);
     pmb->par_for("mhdmodes_init", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-        KOKKOS_LAMBDA_3D {
+        KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
             Real X[GR_DIM];
             G.coord_embed(k, j, i, Loci::center, X);
 
@@ -270,5 +274,6 @@ TaskStatus InitializeMHDModes(MeshBlockData<Real> *rc, ParameterInput *pin)
         pin->SetReal("parthenon/time", "tlim", 2. * M_PI / m::abs(omega.imag()));
     }
 
+    Flag(rc, "Initialized");
     return TaskStatus::complete;
 }

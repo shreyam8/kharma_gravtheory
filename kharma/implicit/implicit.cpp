@@ -39,11 +39,29 @@
 #include "grmhd_functions.hpp"
 #include "pack.hpp"
 
+#if DISABLE_IMPLICIT
+
+std::shared_ptr<KHARMAPackage> Implicit::Initialize(ParameterInput *pin, std::shared_ptr<Packages_t>& packages)
+{ throw std::runtime_error("KHARMA was compiled without implicit stepping support!"); }
+
+TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_sub_step_init, MeshData<Real> *md_flux_src,
+                MeshData<Real> *md_linesearch, MeshData<Real> *md_solver, const Real& dt) {}
+
+#else
+
+// Implicit nonlinear solve requires several linear solves per-zone
+// Use Kokkos-kernels QR decomposition & triangular solve, they're fast.
+#include <KokkosBatched_LU_Decl.hpp>
+#include <KokkosBatched_QR_Decl.hpp>
+#include <KokkosBatched_ApplyQ_Decl.hpp>
+#include <KokkosBatched_Trsv_Decl.hpp>
+#include <KokkosBatched_ApplyPivot_Decl.hpp>
+
 std::vector<std::string> Implicit::get_ordered_names(MeshBlockData<Real> *rc, const MetadataFlag& flag, bool only_implicit)
 {
     auto pmb0 = rc->GetBlockPointer();
-    MetadataFlag isImplicit = pmb0->packages.Get("Implicit")->Param<MetadataFlag>("ImplicitFlag");
-    MetadataFlag isExplicit = pmb0->packages.Get("Implicit")->Param<MetadataFlag>("ExplicitFlag");
+    MetadataFlag isImplicit = pmb0->packages.Get("Driver")->Param<MetadataFlag>("ImplicitFlag");
+    MetadataFlag isExplicit = pmb0->packages.Get("Driver")->Param<MetadataFlag>("ExplicitFlag");
     std::vector<std::string> out;
     auto vars = rc->GetVariablesByFlag(std::vector<MetadataFlag>({isImplicit, flag}), true).labels();
     for (int i=0; i < vars.size(); ++i) {
@@ -62,10 +80,10 @@ std::vector<std::string> Implicit::get_ordered_names(MeshBlockData<Real> *rc, co
     return out;
 }
 
-std::shared_ptr<StateDescriptor> Implicit::Initialize(ParameterInput *pin)
+std::shared_ptr<KHARMAPackage> Implicit::Initialize(ParameterInput *pin, std::shared_ptr<Packages_t>& packages)
 {
     Flag("Initializing Implicit Package");
-    auto pkg = std::make_shared<StateDescriptor>("Implicit");
+    auto pkg = std::make_shared<KHARMAPackage>("Implicit");
     Params &params = pkg->AllParams();
 
     // Implicit solver parameters
@@ -77,7 +95,12 @@ std::shared_ptr<StateDescriptor> Implicit::Initialize(ParameterInput *pin)
     params.Add("min_nonlinear_iter", min_nonlinear_iter);
     int max_nonlinear_iter = pin->GetOrAddInteger("implicit", "max_nonlinear_iter", 3);
     params.Add("max_nonlinear_iter", max_nonlinear_iter);
+    // The QR decomposition seems more stable on CPUs, but LU wins on GPUs
+#ifdef KOKKOS_ENABLE_CUDA
+    bool use_qr = pin->GetOrAddBoolean("implicit", "use_qr", false);
+#else
     bool use_qr = pin->GetOrAddBoolean("implicit", "use_qr", true);
+#endif
     params.Add("use_qr", use_qr);
 
     bool linesearch = pin->GetOrAddBoolean("implicit", "linesearch", true);
@@ -89,17 +112,7 @@ std::shared_ptr<StateDescriptor> Implicit::Initialize(ParameterInput *pin)
     Real linesearch_lambda = pin->GetOrAddReal("implicit", "linesearch_lambda", 1.0);
     params.Add("linesearch_lambda", linesearch_lambda);
 
-    int verbose = pin->GetOrAddInteger("debug", "verbose", 0);
-    params.Add("verbose", verbose);
-
     // TODO some way to denote non-converged zones?  impflag or something?
-
-    // When using this package we'll need to distinguish implicitly and explicitly-updated variables
-    // All independent variables should be marked one or the other when this package is in use
-    MetadataFlag isImplicit = Metadata::AllocateNewFlag("Implicit");
-    params.Add("ImplicitFlag", isImplicit);
-    MetadataFlag isExplicit = Metadata::AllocateNewFlag("Explicit");
-    params.Add("ExplicitFlag", isExplicit);
 
     // Allocate additional fields that reflect the success of the solver
     // L2 norm of the residual
@@ -122,23 +135,7 @@ std::shared_ptr<StateDescriptor> Implicit::Initialize(ParameterInput *pin)
     //     bool grmhd_implicit = (driver_type == "imex") && (pin->GetBoolean("emhd", "on") || pin->GetOrAddBoolean("GRMHD", "implicit", false));
     //     bool implicit_b     = (driver_type == "imex") && (pin->GetOrAddBoolean("b_field", "implicit", grmhd_implicit));
     //     bool emhd_enabled   = pin->GetOrAddBoolean("emhd", "on", false);
-    //     int nvars_implicit  = 0;
-    //     if (grmhd_implicit){
-    //         if (emhd_enabled) {
-    //             if (implicit_b) {
-    //                 nvars_implicit = 10;
-    //             }
-    //             else
-    //                 nvars_implicit = 7;
-    //         } else {
-    //             if (implicit_b) {
-    //                 nvars_implicit = 8;
-    //             }
-    //             else
-    //                 nvars_implicit = 6;
-    //         }
-    //     }
-    //     const int nfvar = nvars_implicit;
+    //     int nvars_implicit  = // Get this from "Driver"
         
     //     // flags_vec = std::vector<MetadataFlag>({Metadata::Real, Metadata::Cell, Metadata::Derived, Metadata::OneCopy});
     //     // auto flags_vec(flags_vec);
@@ -147,25 +144,13 @@ std::shared_ptr<StateDescriptor> Implicit::Initialize(ParameterInput *pin)
     //     Metadata m = Metadata({Metadata::Real, Metadata::Cell, Metadata::Derived, Metadata::OneCopy}, s_vector);
     //     pkg->AddField("residual", m);
     // }
-    
 
     // Anything we need to run from this package on callbacks
     // Maybe a post-step L2 or flag count or similar
-    // pkg->PostFillDerivedBlock = Implicit::PostFillDerivedBlock;
-    // pkg->PostStepDiagnosticsMesh = Implicit::PostStepDiagnostics;
 
     Flag("Initialized");
     return pkg;
 }
-
-#if ENABLE_IMPLICIT
-
-// Implicit nonlinear solve requires several linear solves per-zone
-// Use Kokkos-kernels QR decomposition & triangular solve, they're fast.
-#include <batched/dense/KokkosBatched_LU_Decl.hpp>
-#include <batched/dense/KokkosBatched_QR_Decl.hpp>
-#include <batched/dense/KokkosBatched_ApplyQ_Decl.hpp>
-#include <batched/dense/KokkosBatched_Trsv_Decl.hpp>
 
 TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_sub_step_init, MeshData<Real> *md_flux_src,
                 MeshData<Real> *md_linesearch, MeshData<Real> *md_solver, const Real& dt)
@@ -186,7 +171,7 @@ TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_
     const Real delta         = implicit_par.Get<Real>("jacobian_delta");
     const Real rootfind_tol  = implicit_par.Get<Real>("rootfind_tol");
     const bool use_qr        = implicit_par.Get<bool>("use_qr");
-    const int verbose        = implicit_par.Get<int>("verbose");
+    const int verbose       = pmb_full_step_init->packages.Get("Globals")->Param<int>("verbose");
     const Real gam           = pmb_full_step_init->packages.Get("GRMHD")->Param<Real>("gamma");
 
     const bool linesearch         = implicit_par.Get<bool>("linesearch");
@@ -215,9 +200,7 @@ TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_
 
     // I don't normally do this, but we *really* care about variable ordering here.
     // The implicit variables need to be first, so we know how to iterate over just them to fill
-    // just the residual & Jacobian we care about, which makes the solve much faster.
-    // This strategy is ugly but potentially gives us complete control,
-    // in case Kokkos's un-pivoted LU proves problematic
+    // just the residual & Jacobian we care about, which makes the solve faster.
     MetadataFlag isPrimitive  = pmb_sub_step_init->packages.Get("GRMHD")->Param<MetadataFlag>("PrimitiveFlag");
     auto& mbd_full_step_init  = md_full_step_init->GetBlockData(0); // MeshBlockData object, more member functions
     auto ordered_prims        = get_ordered_names(mbd_full_step_init.get(), isPrimitive);
@@ -288,6 +271,7 @@ TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_
     const int scratch_level = 1; // 0 is actual scratch (tiny); 1 is HBM
     const size_t var_size_in_bytes    = parthenon::ScratchPad2D<Real>::shmem_size(nvar, n1);
     const size_t fvar_size_in_bytes   = parthenon::ScratchPad2D<Real>::shmem_size(nfvar, n1);
+    const size_t fvar_int_size_in_bytes   = parthenon::ScratchPad2D<int>::shmem_size(nfvar, n1);
     const size_t tensor_size_in_bytes = parthenon::ScratchPad3D<Real>::shmem_size(nfvar, nfvar, n1);
     const size_t scalar_size_in_bytes = parthenon::ScratchPad1D<Real>::shmem_size(n1);
     const size_t int_size_in_bytes    = parthenon::ScratchPad1D<int>::shmem_size(n1);
@@ -297,8 +281,8 @@ TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_
     // P_full_step_init/U_full_step_init, P_sub_step_init/U_sub_step_init, flux_src, 
     // P_solver, P_linesearch, dU_implicit, three temps (all vars)
     // solve_norm, solve_fail
-    const size_t total_scratch_bytes = tensor_size_in_bytes + (4) * fvar_size_in_bytes + (11) * var_size_in_bytes + \
-                                    (2) * scalar_size_in_bytes;
+    const size_t total_scratch_bytes = tensor_size_in_bytes + (6) * fvar_size_in_bytes + fvar_int_size_in_bytes
+                                    + (10) * var_size_in_bytes + (2) * scalar_size_in_bytes;
                                     //  + int_size_in_bytes;
 
     // Iterate.  This loop is outside the kokkos kernel in order to print max_norm
@@ -316,12 +300,14 @@ TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_
                 ScratchPad3D<Real> jacobian_s(member.team_scratch(scratch_level), nfvar, nfvar, n1);
                 ScratchPad2D<Real> residual_s(member.team_scratch(scratch_level), nfvar, n1);
                 ScratchPad2D<Real> delta_prim_s(member.team_scratch(scratch_level), nfvar, n1);
+                ScratchPad2D<int> pivot_s(member.team_scratch(scratch_level), n1, nfvar);
                 ScratchPad2D<Real> trans_s(member.team_scratch(scratch_level), nfvar, n1);
-                ScratchPad2D<Real> work_s(member.team_scratch(scratch_level), nfvar, n1);
+                ScratchPad2D<Real> work_s(member.team_scratch(scratch_level), 2*nfvar, n1);
+                // tmp2 holds a residual with only implicit variable errors
+                ScratchPad2D<Real> tmp2_s(member.team_scratch(scratch_level), nfvar, n1);
                 // Scratchpads for all vars
                 ScratchPad2D<Real> dU_implicit_s(member.team_scratch(scratch_level), nvar, n1);
                 ScratchPad2D<Real> tmp1_s(member.team_scratch(scratch_level), nvar, n1);
-                ScratchPad2D<Real> tmp2_s(member.team_scratch(scratch_level), nvar, n1);
                 ScratchPad2D<Real> tmp3_s(member.team_scratch(scratch_level), nvar, n1);
                 ScratchPad2D<Real> P_full_step_init_s(member.team_scratch(scratch_level), nvar, n1);
                 ScratchPad2D<Real> U_full_step_init_s(member.team_scratch(scratch_level), nvar, n1);
@@ -354,6 +340,23 @@ TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_
                     );
                 }
                 member.team_barrier();
+                // For implicit variables only
+                for(int ip=0; ip < nfvar; ++ip) {
+                    parthenon::par_for_inner(member, 0, n1-1,
+                        [&](const int& i) {
+                            for(int jp=0; jp < nfvar; ++jp)
+                                jacobian_s(i, ip, jp) = 0.;
+                            residual_s(i, ip) = 0.;
+                            delta_prim_s(i, ip) = 0.;
+                            pivot_s(i, ip) = 0;
+                            trans_s(i, ip) = 0.;
+                            work_s(i, ip) = 0.;
+                            work_s(i, ip+nfvar) = 0.;
+                            tmp2_s(i, ip) = 0.;
+                        }
+                    );
+                }
+                member.team_barrier();
 
                 // Copy in the guess or current solution
                 // Note this replaces the implicit portion of P_solver_s --
@@ -381,6 +384,7 @@ TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_
                         auto residual   = Kokkos::subview(residual_s, Kokkos::ALL(), i);
                         auto jacobian   = Kokkos::subview(jacobian_s, Kokkos::ALL(), Kokkos::ALL(), i);
                         auto delta_prim = Kokkos::subview(delta_prim_s, Kokkos::ALL(), i);
+                        auto pivot      = Kokkos::subview(pivot_s, Kokkos::ALL(), i);
                         auto trans      = Kokkos::subview(trans_s, Kokkos::ALL(), i);
                         auto work       = Kokkos::subview(work_s, Kokkos::ALL(), i);
                         // Temporaries
@@ -399,7 +403,7 @@ TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_
                         }
 
                         // Copy `solver` prims to `linesearch`. This doesn't matter for the first step of the solver
-                        // since we do a copy in imex_driver just before, but it is required for the subsequent
+                        // since we do a copy in imex_step just before, but it is required for the subsequent
                         // iterations of the solver.
                         PLOOP P_linesearch(ip) = P_solver(ip);
                         Real lambda = linesearch_lambda;
@@ -430,7 +434,7 @@ TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_
 
                         if (use_qr) {
                             // Linear solve by QR decomposition
-                            KokkosBatched::SerialQR<KokkosBatched::Algo::QR::Unblocked>::invoke(jacobian, trans, work);
+                            KokkosBatched::SerialQR<KokkosBatched::Algo::QR::Unblocked>::invoke(jacobian, trans, pivot, work);
                             KokkosBatched::SerialApplyQ<KokkosBatched::Side::Left, KokkosBatched::Trans::Transpose,
                                                         KokkosBatched::Algo::ApplyQ::Unblocked>
                             ::invoke(jacobian, trans, delta_prim, work);
@@ -438,8 +442,13 @@ TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_
                             KokkosBatched::SerialLU<KokkosBatched::Algo::LU::Unblocked>::invoke(jacobian, tiny);
                         }
                         KokkosBatched::SerialTrsv<KokkosBatched::Uplo::Upper, KokkosBatched::Trans::NoTranspose, 
-                                                  KokkosBatched::Diag::NonUnit, KokkosBatched::Algo::Trsv::Unblocked>
+                                                KokkosBatched::Diag::NonUnit, KokkosBatched::Algo::Trsv::Unblocked>
                         ::invoke(alpha, jacobian, delta_prim);
+                        if (use_qr) {
+                            // Linear solve by QR decomposition
+                            KokkosBatched::SerialApplyPivot<KokkosBatched::Side::Left,KokkosBatched::Direct::Backward>
+                                ::invoke(pivot, delta_prim);
+                        }
 
                         // Check for positive definite values of density and internal energy.
                         // Break from solve if manual backtracking is not sufficient.
@@ -538,7 +547,7 @@ TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_
             static AllReduce<Real> max_norm;
             Kokkos::Max<Real> norm_max(max_norm.val);
             pmb_sub_step_init->par_reduce("max_norm", block.s, block.e, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-                KOKKOS_LAMBDA_MESH_3D_REDUCE {
+                KOKKOS_LAMBDA (const int &b, const int &k, const int &j, const int &i, double &local_result) {
                     if (solve_norm_all(b, 0, k, j, i) > local_result) local_result = solve_norm_all(b, 0, k, j, i);
                 }
             , norm_max);
@@ -555,39 +564,6 @@ TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_
 
     return TaskStatus::complete;
 
-}
-
-#else
-
-TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_sub_step_init, MeshData<Real> *md_flux_src,
-                MeshData<Real> *md_solver, const Real& dt)
-{
-    Flag("Dummy implicit solve");
-    auto pmb_sub_step_init  = md_sub_step_init->GetBlockData(0)->GetBlockPointer();
-
-    MetadataFlag isPrimitive = pmb_sub_step_init->packages.Get("GRMHD")->Param<MetadataFlag>("PrimitiveFlag");
-    auto& mbd_full_step_init  = md_full_step_init->GetBlockData(0); // MeshBlockData object, more member functions
-
-    // Get number of variables
-    auto ordered_cons  = get_ordered_names(mbd_full_step_init.get(), Metadata::Conserved);
-    PackIndexMap cons_map;
-    auto& U_full_step_init_all = md_full_step_init->PackVariables(ordered_cons, cons_map);
-    const int nvar   = U_full_step_init_all.GetDim(4);
-
-    // Get number of implicit variables
-    auto implicit_vars = get_ordered_names(mbd_full_step_init.get(), isPrimitive, true);
-    PackIndexMap implicit_prims_map;
-    auto& P_full_step_init_implicit = md_full_step_init->PackVariables(implicit_vars, implicit_prims_map);
-    const int nfvar = P_full_step_init_implicit.GetDim(4);
-
-    // RETURN if there aren't any implicit variables to evolve
-    //std::cerr << "Solve size " << nfvar << " on prim size " << nvar << std::endl;
-    if (nfvar == 0) {
-        return TaskStatus::complete;
-    } else {
-        throw std::runtime_error("Cannot evolve variables implicitly: KHARMA was compiled without implicit solver!");
-    }
-    Flag("End dummy implicit solve");
 }
 
 #endif

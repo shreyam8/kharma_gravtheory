@@ -60,9 +60,6 @@ solver = none
 verbose = 0
 flag_verbose = 2
 
-<driver>
-type = harm
-
 <parthenon/output0>
 file_type = hdf5
 dt = 5.0

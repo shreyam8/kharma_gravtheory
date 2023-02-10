@@ -71,27 +71,27 @@ inline BSeedType ParseBSeedType(std::string b_field_type)
 }
 
 /**
- * Get the minimum value of plasma beta on the (physical, non-ghost) domain
+ * Normalize the magnetic field by multiplying by 'norm'
  * 
- * Likely not actually what you want
+ * LOCKSTEP: this function only respects P!
  */
-Real GetLocalBetaMin(parthenon::MeshBlockData<Real> *rc);
+inline TaskStatus NormalizeBField(MeshBlockData<Real> *rc, Real norm)
+{
+    auto pmb = rc->GetBlockPointer();
+    IndexDomain domain = IndexDomain::interior;
+    int is = pmb->cellbounds.is(domain), ie = pmb->cellbounds.ie(domain);
+    int js = pmb->cellbounds.js(domain), je = pmb->cellbounds.je(domain);
+    int ks = pmb->cellbounds.ks(domain), ke = pmb->cellbounds.ke(domain);
+    GridVector B_P = rc->Get("prims.B").data;
+    const auto& G = pmb->coords;
 
-/**
- * Get the maximum/minimum value of b^2 (twice the magnetic field pressure)
- * over the domain.  Latter a good check for >0 & for constant-field init.
- */
-Real GetLocalBsqMax(parthenon::MeshBlockData<Real> *rc);
-Real GetLocalBsqMin(parthenon::MeshBlockData<Real> *rc);
+    const Real gam = pmb->packages.Get("GRMHD")->Param<Real>("gamma");
 
-/**
- * Get the maximum fluid pressure over the domain
- */
-Real GetLocalPMax(parthenon::MeshBlockData<Real> *rc);
+    pmb->par_for("B_field_normalize", ks, ke, js, je, is, ie,
+        KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
+            VLOOP B_P(v, k, j, i) *= norm;
+        }
+    );
 
-/**
- * Normalize the magnetic field by dividing by 'factor'
- * 
- * LOCKSTEP: this function expects and preserves P==U
- */
-TaskStatus NormalizeBField(parthenon::MeshBlockData<Real> *rc, Real factor);
+    return TaskStatus::complete;
+}

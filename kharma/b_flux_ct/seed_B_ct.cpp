@@ -114,25 +114,23 @@ TaskStatus B_FluxCT::SeedBField(MeshBlockData<Real> *rc, ParameterInput *pin)
     // Shortcut to field values for easy fields
     if (b_field_flag == BSeedType::constant) {
         pmb->par_for("B_field_B", ks, ke, js, je, is, ie,
-            KOKKOS_LAMBDA_3D {
+            KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
                 // Set B1 directly
                 B_P(V1, k, j, i) = b10;
                 B_P(V2, k, j, i) = b20;
                 B_P(V3, k, j, i) = b30;
             }
         );
-        B_FluxCT::PtoU(rc);
         return TaskStatus::complete;
     } else if (b_field_flag == BSeedType::monopole) {
         pmb->par_for("B_field_B", ks, ke, js, je, is, ie,
-            KOKKOS_LAMBDA_3D {
+            KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
                 // Set B1 directly by normalizing
                 B_P(V1, k, j, i) = b10 / G.gdet(Loci::center, j, i);
                 B_P(V2, k, j, i) = 0.;
                 B_P(V3, k, j, i) = 0.;
             }
         );
-        B_FluxCT::PtoU(rc);
         return TaskStatus::complete;
     }
 
@@ -141,7 +139,7 @@ TaskStatus B_FluxCT::SeedBField(MeshBlockData<Real> *rc, ParameterInput *pin)
     // TODO there should be an ncornersi,j,k
     ParArrayND<double> A("A", NVEC, n3+1, n2+1, n1+1);
     pmb->par_for("B_field_A", ks, ke+1, js, je+1, is, ie+1,
-        KOKKOS_LAMBDA_3D {
+        KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
             GReal Xnative[GR_DIM];
             GReal Xembed[GR_DIM], Xmidplane[GR_DIM];
             G.coord(k, j, i, Loci::corner, Xnative);
@@ -251,7 +249,7 @@ TaskStatus B_FluxCT::SeedBField(MeshBlockData<Real> *rc, ParameterInput *pin)
     // Calculate B-field
     if (ndim > 2) {
         pmb->par_for("B_field_B_3D", ks, ke, js, je, is, ie,
-            KOKKOS_LAMBDA_3D {
+            KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
                 // Take a flux-ct step from the corner potentials.
                 // This needs to be 3D because post-tilt A may not point in the phi direction only
 
@@ -265,7 +263,7 @@ TaskStatus B_FluxCT::SeedBField(MeshBlockData<Real> *rc, ParameterInput *pin)
                                     A(V2, k + 1, j + 1, i) + A(V2, k + 1, j + 1, i + 1)) / 4;
                 const Real A2c3b = (A(V2, k, j, i)     + A(V2, k, j, i + 1) +
                                     A(V2, k, j + 1, i) + A(V2, k, j + 1, i + 1)) / 4;
-                B_U(V1, k, j, i) = (A3c2f - A3c2b) / G.dx2v(j) - (A2c3f - A2c3b) / G.dx3v(k);
+                B_U(V1, k, j, i) = (A3c2f - A3c2b) / G.Dxc<2>(j) - (A2c3f - A2c3b) / G.Dxc<3>(k);
 
                 // A1,3 derivative
                 const Real A1c3f = (A(V1, k + 1, j, i)     + A(V1, k + 1, j, i + 1) + 
@@ -277,7 +275,7 @@ TaskStatus B_FluxCT::SeedBField(MeshBlockData<Real> *rc, ParameterInput *pin)
                                     A(V3, k, j + 1, i + 1) + A(V3, k + 1, j + 1, i + 1)) / 4;
                 const Real A3c1b = (A(V3, k, j, i)     + A(V3, k + 1, j, i) +
                                     A(V3, k, j + 1, i) + A(V3, k + 1, j + 1, i)) / 4;
-                B_U(V2, k, j, i) = (A1c3f - A1c3b) / G.dx3v(k) - (A3c1f - A3c1b) / G.dx1v(i);
+                B_U(V2, k, j, i) = (A1c3f - A1c3b) / G.Dxc<3>(k) - (A3c1f - A3c1b) / G.Dxc<1>(i);
 
                 // A2,1 derivative
                 const Real A2c1f = (A(V2, k, j, i + 1)     + A(V2, k, j + 1, i + 1) + 
@@ -289,21 +287,21 @@ TaskStatus B_FluxCT::SeedBField(MeshBlockData<Real> *rc, ParameterInput *pin)
                                     A(V1, k + 1, j + 1, i) + A(V1, k + 1, j + 1, i + 1)) / 4;
                 const Real A1c2b = (A(V1, k, j, i)     + A(V1, k, j, i + 1) +
                                     A(V1, k + 1, j, i) + A(V1, k + 1, j, i + 1)) / 4;
-                B_U(V3, k, j, i) = (A2c1f - A2c1b) / G.dx1v(i) - (A1c2f - A1c2b) / G.dx2v(j);
+                B_U(V3, k, j, i) = (A2c1f - A2c1b) / G.Dxc<1>(i) - (A1c2f - A1c2b) / G.Dxc<2>(j);
             }
         );
     } else {
         pmb->par_for("B_field_B_2D", ks, ke, js, je, is, ie,
-            KOKKOS_LAMBDA_3D {
+            KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
                 // A3,2 derivative
                 const Real A3c2f = (A(V3, k, j + 1, i) + A(V3, k, j + 1, i + 1)) / 2;
                 const Real A3c2b = (A(V3, k, j, i)     + A(V3, k, j, i + 1)) / 2;
-                B_U(V1, k, j, i) = (A3c2f - A3c2b) / G.dx2v(j);
+                B_U(V1, k, j, i) = (A3c2f - A3c2b) / G.Dxc<2>(j);
 
                 // A3,1 derivative
                 const Real A3c1f = (A(V3, k, j, i + 1) + A(V3, k, j + 1, i + 1)) / 2;
                 const Real A3c1b = (A(V3, k, j, i)     + A(V3, k, j + 1, i)) / 2;
-                B_U(V2, k, j, i) = - (A3c1f - A3c1b) / G.dx1v(i);
+                B_U(V2, k, j, i) = - (A3c1f - A3c1b) / G.Dxc<1>(i);
 
                 B_U(V3, k, j, i) = 0;
             }
@@ -311,7 +309,7 @@ TaskStatus B_FluxCT::SeedBField(MeshBlockData<Real> *rc, ParameterInput *pin)
     }
 
     // Then make sure the primitive versions are updated, too
-    B_FluxCT::UtoP(rc);
+    B_FluxCT::BlockUtoP(rc, IndexDomain::interior);
 
     return TaskStatus::complete;
 }

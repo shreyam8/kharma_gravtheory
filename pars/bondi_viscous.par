@@ -13,7 +13,7 @@ nx3 = 1
 
 <parthenon/meshblock>
 nx1 = 128
-nx2 = 128
+nx2 = 64
 nx3 = 1
 
 <coordinates>
@@ -22,6 +22,7 @@ transform = mks
 a         = 0.0
 hslope    = 1.0
 r_out     = 20
+Rhor      = 3
 
 <parthenon/time>
 tlim = 400.0
@@ -33,7 +34,7 @@ reconstruction = weno5
 implicit       = true
 
 <b_field>
-implicit        = false
+implicit        = true
 initial_cleanup = false
 
 <driver>

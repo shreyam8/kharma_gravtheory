@@ -47,6 +47,11 @@
 // implicit solver stuff
 using namespace EMHD;
 
+// And an odd but useful loop for ex-iharm3d code
+// This requires nvar to be defined in caller!
+// It is not a const/global anymore.  So, use this loop carefully
+#define PLOOP for(int ip=0; ip < nvar; ++ip)
+
 // Version of PLOOP for just implicit ("fluid") variables
 #define FLOOP for(int ip=0; ip < nfvar; ++ip)
 
@@ -56,7 +61,7 @@ namespace Implicit
 /**
  * Initialization.  Set parameters.
  */
-std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
+std::shared_ptr<KHARMAPackage> Initialize(ParameterInput *pin, std::shared_ptr<Packages_t>& packages);
 
 /**
  * @brief take the per-zone implicit portion of a semi-implicit scheme
@@ -70,16 +75,6 @@ std::shared_ptr<StateDescriptor> Initialize(ParameterInput *pin);
  */
 TaskStatus Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_sub_step_init, MeshData<Real> *md_flux_src,
                 MeshData<Real> *md_linesearch, MeshData<Real> *md_solver, const Real& dt);
-
-/**
- * Get the names of all variables matching 'flag' in a deterministic order, placing implicitly-evolved variables first.
- */
-std::vector<std::string> get_ordered_names(MeshBlockData<Real> *rc, const MetadataFlag& flag, bool only_implicit=false);
-
-/**
- * Get the names of all variables matching 'flag' in a deterministic order, placing implicitly-evolved variables first.
- */
-std::vector<std::string> get_ordered_names(MeshBlockData<Real> *rc, const MetadataFlag& flag, bool only_implicit=false);
 
 /**
  * Get the names of all variables matching 'flag' in a deterministic order, placing implicitly-evolved variables first.
@@ -128,7 +123,7 @@ KOKKOS_INLINE_FUNCTION void calc_residual(const GRCoordinates& G, const Local& P
 
         // Normalize
         Real tau, chi_e, nu_e;
-        EMHD::set_parameters(G, Ps, m_p, emhd_params_s, gam, k, j, i, tau, chi_e, nu_e);
+        EMHD::set_parameters(G, Ps, m_p, emhd_params_s, gam, j, i, tau, chi_e, nu_e);
         residual(m_u.Q)  *= tau;
         residual(m_u.DP) *= tau;
         if (emhd_params.higher_order_terms){

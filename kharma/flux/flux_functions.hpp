@@ -40,14 +40,16 @@
 #include "grmhd_functions.hpp"
 #include "kharma_utils.hpp"
 #include "types.hpp"
+
 /**
- * Device-side functions prim_to_flux and vchar, which will depend on
+ * Device-side functions calc_tensor, prim_to_flux, and vchar, which will depend on
  * the set of enabled packages.
  */
 
 namespace Flux
 {
 
+// TODO Q > 0 != emhd_enabled.  Store enablement in emhd_params since we need it anyway
 template<typename Local>
 KOKKOS_INLINE_FUNCTION void calc_tensor(const GRCoordinates& G, const Local& P, const VarMap& m_p, const FourVectors D,
                                         const EMHD::EMHD_parameters& emhd_params, const Real& gam, const int& dir,
@@ -78,7 +80,6 @@ KOKKOS_INLINE_FUNCTION void calc_tensor(const GRCoordinates& G, const Global& P,
                                         Real T[GR_DIM])
 {
     if (m_p.Q >= 0) {
-
         // Apply higher-order terms conversion if necessary
         Real q, dP;
         const Real Theta = (gam - 1) * P(m_p.UU, k, j, i) / P(m_p.RHO, k, j, i);
@@ -88,34 +89,6 @@ KOKKOS_INLINE_FUNCTION void calc_tensor(const GRCoordinates& G, const Global& P,
         // Then calculate the tensor
         EMHD::calc_tensor(P(m_p.RHO, k, j, i), P(m_p.UU, k, j, i), (gam - 1) * P(m_p.UU, k, j, i), emhd_params, q, dP, D, dir, T);
     } else if (m_p.B1 >= 0) {
-        // GRMHD stress-energy tensor w/ first index up, second index down
-        GRMHD::calc_tensor(P(m_p.RHO, k, j, i), P(m_p.UU, k, j, i), (gam - 1) * P(m_p.UU, k, j, i), D, dir, T);
-    } else {
-        // GRHD stress-energy tensor w/ first index up, second index down
-        GRHD::calc_tensor(P(m_p.RHO, k, j, i), P(m_p.UU, k, j, i), (gam - 1) * P(m_p.UU, k, j, i), D, dir, T);
-    }
-}
-
-template<typename Local>
-KOKKOS_INLINE_FUNCTION void calc_tensor(const GRCoordinates& G, const Local& P, const VarMap& m_p, const FourVectors D,
-                                         const Real& gam, const int& dir,
-                                         Real T[GR_DIM])
-{
-    if (m_p.B1 >= 0) {
-        // GRMHD stress-energy tensor w/ first index up, second index down
-        GRMHD::calc_tensor(P(m_p.RHO), P(m_p.UU), (gam - 1) * P(m_p.UU), D, dir, T);
-    } else {
-        // GRHD stress-energy tensor w/ first index up, second index down
-        GRHD::calc_tensor(P(m_p.RHO), P(m_p.UU), (gam - 1) * P(m_p.UU), D, dir, T);
-    }
-}
-
-template<typename Global>
-KOKKOS_INLINE_FUNCTION void calc_tensor(const GRCoordinates& G, const Global& P, const VarMap& m_p, const FourVectors D,
-                                         const Real& gam, const int& k, const int& j, const int& i, const int& dir,
-                                         Real T[GR_DIM])
-{
-    if (m_p.B1 >= 0) {
         // GRMHD stress-energy tensor w/ first index up, second index down
         GRMHD::calc_tensor(P(m_p.RHO, k, j, i), P(m_p.UU, k, j, i), (gam - 1) * P(m_p.UU, k, j, i), D, dir, T);
     } else {
@@ -206,24 +179,7 @@ KOKKOS_INLINE_FUNCTION void prim_to_flux(const GRCoordinates& G, const Global& P
     flux(m_u.RHO, k, j, i) = P(m_p.RHO, k, j, i) * D.ucon[dir] * gdet;
 
     Real T[GR_DIM];
-    if (m_p.Q >= 0) {
-
-        // Apply higher-order terms conversion if necessary
-        Real q, dP;
-        const Real Theta = (gam - 1) * P(m_p.UU, k, j, i) / P(m_p.RHO, k, j, i);
-        const Real cs2   = gam * (gam - 1) * P(m_p.UU, k, j, i) / (P(m_p.RHO, k, j, i) + gam * P(m_p.UU, k, j, i));
-        EMHD::convert_prims_to_q_dP(P(m_p.Q, k, j, i), P(m_p.DP, k, j, i), P(m_p.RHO, k, j, i), Theta, cs2, emhd_params, q, dP);
-
-        // Then calculate the tensor
-        EMHD::calc_tensor(P(m_p.RHO, k, j, i), P(m_p.UU, k, j, i), (gam - 1) * P(m_p.UU, k, j, i), emhd_params, q, dP, D, dir, T);
-    } else if (m_p.B1 >= 0) {
-        // GRMHD stress-energy tensor w/ first index up, second index down
-        GRMHD::calc_tensor(P(m_p.RHO, k, j, i), P(m_p.UU, k, j, i), (gam - 1) * P(m_p.UU, k, j, i), D, dir, T);
-    } else {
-        // GRHD stress-energy tensor w/ first index up, second index down
-        GRHD::calc_tensor(P(m_p.RHO, k, j, i), P(m_p.UU, k, j, i), (gam - 1) * P(m_p.UU, k, j, i), D, dir, T);
-    }
-    // if (i == 11 && j == 11) printf("mhd: %6.5e %6.5e %6.5e %6.5e %6.5e\n", flux(m_u.RHO), T[0], T[1], T[2], T[3]);
+    calc_tensor(G, P, m_p, D, emhd_params, gam, k, j, i, dir, T);
     flux(m_u.UU, k, j, i) = T[0] * gdet + flux(m_u.RHO, k, j, i);
     flux(m_u.U1, k, j, i) = T[1] * gdet;
     flux(m_u.U2, k, j, i) = T[2] * gdet;
@@ -274,7 +230,27 @@ KOKKOS_INLINE_FUNCTION void prim_to_flux(const GRCoordinates& G, const Global& P
         if (m_p.K_SHARMA >= 0)
             flux(m_u.K_SHARMA, k, j, i)   = flux(m_u.RHO, k, j, i) * P(m_p.K_SHARMA, k, j, i);
     }
+}
 
+/**
+ * P->U for just the GRMHD variables, but using the full tensor.  Needed with floors and in a few places
+ */
+template<typename Global>
+KOKKOS_INLINE_FUNCTION void prim_to_flux_mhd(const GRCoordinates& G, const Global& P, const VarMap& m_p, const FourVectors D,
+                                         const EMHD::EMHD_parameters& emhd_params, const Real& gam, 
+                                         const int& k, const int& j, const int& i, const int dir,
+                                         const Global& flux, const VarMap& m_u, const Loci loc=Loci::center)
+{
+    const Real& gdet = G.gdet(loc, j, i);
+    // Particle number flux
+    flux(m_u.RHO, k, j, i) = P(m_p.RHO, k, j, i) * D.ucon[dir] * gdet;
+
+    Real T[GR_DIM];
+    calc_tensor(G, P, m_p, D, emhd_params, gam, k, j, i, dir, T);
+    flux(m_u.UU, k, j, i) = T[0] * gdet + flux(m_u.RHO, k, j, i);
+    flux(m_u.U1, k, j, i) = T[1] * gdet;
+    flux(m_u.U2, k, j, i) = T[2] * gdet;
+    flux(m_u.U3, k, j, i) = T[3] * gdet;
 }
 
 /**
@@ -286,9 +262,8 @@ KOKKOS_INLINE_FUNCTION void p_to_u(const GRCoordinates& G, const Local& P, const
                                    const Local& U, const VarMap& m_u, const Loci& loc=Loci::center)
 {
     FourVectors Dtmp;
-    GRMHD::calc_4vecs(G, P, m_p, j, i, loc, Dtmp); // TODO switch GRHD/GRMHD?
+    GRMHD::calc_4vecs(G, P, m_p, j, i, loc, Dtmp);
     prim_to_flux(G, P, m_p, Dtmp, emhd_params, gam, j, i, 0, U, m_u, loc);
-    // printf("%d %d %6.5e %6.5e\n", i, j, P(m_p.Q), P(m_p.DP));
 }
 
 template<typename Global>
@@ -300,6 +275,17 @@ KOKKOS_INLINE_FUNCTION void p_to_u(const GRCoordinates& G, const Global& P, cons
     FourVectors Dtmp;
     GRMHD::calc_4vecs(G, P, m_p, k, j, i, Loci::center, Dtmp);
     prim_to_flux(G, P, m_p, Dtmp, emhd_params, gam, k, j, i, 0, U, m_u, loc);
+}
+
+template<typename Global>
+KOKKOS_INLINE_FUNCTION void p_to_u_mhd(const GRCoordinates& G, const Global& P, const VarMap& m_p,
+                                   const EMHD::EMHD_parameters& emhd_params, const Real& gam, 
+                                   const int& k, const int& j, const int& i,
+                                   const Global& U, const VarMap& m_u, const Loci& loc=Loci::center)
+{
+    FourVectors Dtmp;
+    GRMHD::calc_4vecs(G, P, m_p, k, j, i, Loci::center, Dtmp);
+    prim_to_flux_mhd(G, P, m_p, Dtmp, emhd_params, gam, k, j, i, 0, U, m_u, loc);
 }
 
 /**
@@ -319,7 +305,7 @@ KOKKOS_INLINE_FUNCTION void vchar(const GRCoordinates& G, const Local& P, const 
     if (m.Q > 0) {
          // Get the EGRMHD parameters
         Real tau, chi_e, nu_e;
-        EMHD::set_parameters(G, P, m, emhd_params, gam, k, j, i, tau, chi_e, nu_e);        
+        EMHD::set_parameters(G, P, m, emhd_params, gam, j, i, tau, chi_e, nu_e);        
         
         // Find fast magnetosonic speed
         const Real bsq = m::max(dot(D.bcon, D.bcov), SMALL);

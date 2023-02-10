@@ -57,7 +57,7 @@ KOKKOS_INLINE_FUNCTION void implicit_sources(const GRCoordinates& G, const Local
 {
     // These are intentionally the tilde versions!
     Real tau, chi_e, nu_e;
-    EMHD::set_parameters(G, P_tau, m_p, emhd_params_tau, gam, k, j, i, tau, chi_e, nu_e);
+    EMHD::set_parameters(G, P_tau, m_p, emhd_params_tau, gam, j, i, tau, chi_e, nu_e);
     dUq  = -G.gdet(Loci::center, j, i) * (P(m_p.Q) / tau);
     dUdP = -G.gdet(Loci::center, j, i) * (P(m_p.DP) / tau);
 }
@@ -76,7 +76,7 @@ KOKKOS_INLINE_FUNCTION void time_derivative_sources(const GRCoordinates& G, cons
 {
     // Parameters
     Real tau, chi_e, nu_e;
-    EMHD::set_parameters(G, P, m_p, emhd_params, gam, k, j, i, tau, chi_e, nu_e);
+    EMHD::set_parameters(G, P, m_p, emhd_params, gam, j, i, tau, chi_e, nu_e);
 
     FourVectors Dtmp;
     GRMHD::calc_4vecs(G, P, m_p, j, i, Loci::center, Dtmp);

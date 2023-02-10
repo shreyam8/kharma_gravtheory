@@ -43,7 +43,7 @@
  * Follows initial conditions from Lecoanet et al. 2015,
  * MNRAS 455, 4274.
  */
-TaskStatus InitializeKelvinHelmholtz(MeshBlockData<Real> *rc, ParameterInput *pin)
+TaskStatus InitializeKelvinHelmholtz(std::shared_ptr<MeshBlockData<Real>>& rc, ParameterInput *pin)
 {
     auto pmb = rc->GetBlockPointer();
     GridScalar rho = rc->Get("prims.rho").data;
@@ -71,7 +71,7 @@ TaskStatus InitializeKelvinHelmholtz(MeshBlockData<Real> *rc, ParameterInput *pi
     IndexRange jb = pmb->cellbounds.GetBoundsJ(domain);
     IndexRange kb = pmb->cellbounds.GetBoundsK(domain);
     pmb->par_for("kh_init", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-        KOKKOS_LAMBDA_3D {
+        KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
             GReal X[GR_DIM];
             G.coord_embed(k, j, i, Loci::center, X);
 
@@ -91,7 +91,7 @@ TaskStatus InitializeKelvinHelmholtz(MeshBlockData<Real> *rc, ParameterInput *pi
     );
     // Rescale primitive velocities by tscale, and internal energy by the square.
     pmb->par_for("kh_renorm", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-        KOKKOS_LAMBDA_3D {
+        KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
             u(k, j, i) *= tscale * tscale;
             VLOOP uvec(v, k, j, i) *= tscale;
         }

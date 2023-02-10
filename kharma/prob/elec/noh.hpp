@@ -40,7 +40,7 @@ using namespace parthenon;
 /**
  * Noh shock tube test.
  */
-TaskStatus InitializeNoh(MeshBlockData<Real> *rc, ParameterInput *pin)
+TaskStatus InitializeNoh(std::shared_ptr<MeshBlockData<Real>>& rc, ParameterInput *pin)
 {
     Flag(rc, "Initializing 1D (Noh) Shock test");
     auto pmb = rc->GetBlockPointer();
@@ -74,7 +74,7 @@ TaskStatus InitializeNoh(MeshBlockData<Real> *rc, ParameterInput *pin)
     IndexRange jb = pmb->cellbounds.GetBoundsJ(domain);
     IndexRange kb = pmb->cellbounds.GetBoundsK(domain);
     pmb->par_for("noh_init", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-        KOKKOS_LAMBDA_3D {
+        KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
             rho(k, j, i) = rho0;
             u(k, j, i) = P/(gam - 1.);
             uvec(1, k, j, i) = 0.0;
@@ -84,7 +84,7 @@ TaskStatus InitializeNoh(MeshBlockData<Real> *rc, ParameterInput *pin)
     const auto& G = pmb->coords;
     if (centered) {
         pmb->par_for("noh_cent", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-            KOKKOS_LAMBDA_3D {
+            KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
                 Real X[GR_DIM];
                 G.coord_embed(k, j, i, Loci::center, X);
                 const bool lhs = X[1] < center;
@@ -93,7 +93,7 @@ TaskStatus InitializeNoh(MeshBlockData<Real> *rc, ParameterInput *pin)
         );
     } else {
         pmb->par_for("noh_left", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-            KOKKOS_LAMBDA_3D {
+            KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
                 u(k, j, i) = P/(gam - 1.);
                 uvec(0, k, j, i) = -v0 * gamma;
             }

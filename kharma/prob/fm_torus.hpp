@@ -10,10 +10,10 @@
  * @param rin is the torus innermost radius, in r_g
  * @param rmax is the radius of maximum density of the F-M torus in r_g
  */
-TaskStatus InitializeFMTorus(MeshBlockData<Real> *rc, ParameterInput *pin);
+TaskStatus InitializeFMTorus(std::shared_ptr<MeshBlockData<Real>>& rc, ParameterInput *pin);
 /* Need a different initialization function since we have additional fields (q, dP)
  * for the EMHD problem that are declared at runtime*/
-TaskStatus InitializeFMTorusEMHD(MeshBlockData<Real> *rc, ParameterInput *pin);
+TaskStatus InitializeFMTorusEMHD(std::shared_ptr<MeshBlockData<Real>>& rc, ParameterInput *pin);
 /**
  * Perturb the internal energy by a uniform random proportion per cell.
  * Resulting internal energies will be between u \pm u*u_jitter/2
@@ -22,7 +22,7 @@ TaskStatus InitializeFMTorusEMHD(MeshBlockData<Real> *rc, ParameterInput *pin);
  * @param u_jitter see description
  * @param rng_seed is added to the MPI rank to seed the GSL RNG
  */
-TaskStatus PerturbU(MeshBlockData<Real> *rc, ParameterInput *pin);
+TaskStatus PerturbU(std::shared_ptr<MeshBlockData<Real>>& rc, ParameterInput *pin);
 
 /**
  * Torus solution for ln h, See Fishbone and Moncrief eqn. 3.6. 

@@ -61,17 +61,8 @@ add_subdirectory(external/parthenon)
 include_directories(external/parthenon/src)
 # mpark::variant is header only, don't build anything
 include_directories(external/variant/include)
-# Kokkos kernels: don't build them (very slow), just import all headers
-# Requires KokkosKernels_config.h shipped with KHARMA, YMMV
-# In case of issues, uncomment the following line to build them
-#add_subdirectory(external/kokkos-kernels)
-include_directories(external/kokkos-kernels/src)
-include_directories(external/kokkos-kernels/src/batched)
-include_directories(external/kokkos-kernels/src/common)
-include_directories(external/kokkos-kernels/src/batched/dense)
-include_directories(external/kokkos-kernels/src/batched/dense/impl)
-include_directories(external/kokkos-kernels/src/blas)
-include_directories(external/kokkos-kernels/src/blas/impl)
+# Our hacked-up version of the Kokkos kernels
+include_directories(external/kokkos-kernels)
 
 # Finally, build KHARMA
 add_subdirectory(kharma)

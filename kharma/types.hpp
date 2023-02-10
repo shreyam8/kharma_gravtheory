@@ -34,7 +34,8 @@
 #pragma once
 
 #include "decs.hpp"
-#include "mpi.hpp"
+
+#include "kharma_package.hpp"
 
 #include <parthenon/parthenon.hpp>
 
@@ -51,17 +52,10 @@ using parthenon::MeshBlockData;
 
 // This provides a way of addressing vectors that matches
 // directions, to make derivatives etc more readable
+// TODO Spammy to namespace. Keep?
 #define V1 0
 #define V2 1
 #define V3 2
-
-// Denote reconstruction algorithms
-// See reconstruction.hpp for implementations
-enum ReconstructionType{donor_cell=0, linear_mc, linear_vl, ppm, mp5, weno5, weno5_lower_poles};
-
-// Denote inversion failures (pflags). See U_to_P for status explanations
-// Only thrown from function in U_to_P.hpp, see that file for meanings
-enum InversionStatus{success=0, neg_input, max_iter, bad_ut, bad_gamma, neg_rho, neg_u, neg_rhou};
 
 // Struct for derived 4-vectors at a point, usually calculated and needed together
 typedef struct {
@@ -153,17 +147,19 @@ class VarMap {
 };
 
 /**
- * Functions for checking boundaries in 3D
+ * Functions for checking boundaries in 3D.
+ * Uses IndexRange objects, or this would be in kharma_utils.hpp
  */
-KOKKOS_INLINE_FUNCTION bool inside(const int& k, const int& j, const int& i,
-                                   const IndexRange& kb, const IndexRange& jb, const IndexRange& ib)
-{
-    return (i >= ib.s) && (i <= ib.e) && (j >= jb.s) && (j <= jb.e) && (k >= kb.s) && (k <= kb.e);
-}
 KOKKOS_INLINE_FUNCTION bool outside(const int& k, const int& j, const int& i,
                                     const IndexRange& kb, const IndexRange& jb, const IndexRange& ib)
 {
     return (i < ib.s) || (i > ib.e) || (j < jb.s) || (j > jb.e) || (k < kb.s) || (k > kb.e);
+}
+KOKKOS_INLINE_FUNCTION bool inside(const int& k, const int& j, const int& i,
+                                   const IndexRange& kb, const IndexRange& jb, const IndexRange& ib)
+{
+    // This is faster in the case that the point is outside
+    return !outside(k, j, i, kb, jb, ib);
 }
 
 /**
@@ -171,8 +167,8 @@ KOKKOS_INLINE_FUNCTION bool outside(const int& k, const int& j, const int& i,
  */
 inline bool IsDomainBound(MeshBlock *pmb, BoundaryFace face)
 {
-    return (pmb->boundary_flag[face] != BoundaryFlag::block &&
-            pmb->boundary_flag[face] != BoundaryFlag::periodic);
+    return !(pmb->boundary_flag[face] == BoundaryFlag::block ||
+             pmb->boundary_flag[face] == BoundaryFlag::periodic);
 }
 
 /**
@@ -277,3 +273,10 @@ inline void Flag(std::string label) {}
 inline void Flag(MeshBlockData<Real> *rc, std::string label) {}
 inline void Flag(MeshData<Real> *md, std::string label) {}
 #endif
+/**
+ * Versions of Flag() that take shared_ptr objects and call through with get()
+ * Avoids having to pay attention to shared_ptr vs * pointers in adding Flag() calls
+ * when diagnosing a problem.
+ */
+inline void Flag(std::shared_ptr<MeshBlockData<Real>>& rc, std::string label) { Flag(rc.get(), label); }
+inline void Flag(std::shared_ptr<MeshData<Real>>& md, std::string label) { Flag(md.get(), label); }

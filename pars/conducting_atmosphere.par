@@ -76,6 +76,9 @@ input = ODE
 disable_floors = true
 emhd_limits    = false
 
+<bounds>
+use_dirichlet = true
+
 <debug>
 verbose = 1
 

@@ -37,6 +37,7 @@
 #include "b_field_tools.hpp"
 #include "boundaries.hpp"
 #include "debug.hpp"
+#include "electrons.hpp"
 #include "floors.hpp"
 #include "flux.hpp"
 #include "gr_coordinates.hpp"
@@ -46,7 +47,6 @@
 
 // Problem initialization headers
 #include "bondi.hpp"
-#include "driven_turbulence.hpp"
 #include "explosion.hpp"
 #include "fm_torus.hpp"
 #include "resize_restart.hpp"
@@ -56,73 +56,75 @@
 #include "orszag_tang.hpp"
 #include "shock_tube.hpp"
 #include "hubble.hpp"
-#include "noh.hpp"
 // EMHD problem headers
 #include "emhd/anisotropic_conduction.hpp"
 #include "emhd/emhdmodes.hpp"
 #include "emhd/emhdshock.hpp"
 #include "emhd/conducting_atmosphere.hpp"
-#include "emhd/bondi_viscous.hpp"
-// TODO electron problem headers?
+// Electron problem headers
+#include "elec/driven_turbulence.hpp"
+#include "elec/hubble.hpp"
+#include "elec/noh.hpp"
+
 
 using namespace parthenon;
 
 void KHARMA::ProblemGenerator(MeshBlock *pmb, ParameterInput *pin)
 {
     auto rc = pmb->meshblock_data.Get();
-    Flag(rc.get(), "Initializing Block");
+    Flag(rc, "Initializing Block");
 
     // Breakout to call the appropriate initialization function,
     // defined in accompanying headers.
 
     auto prob = pin->GetString("parthenon/job", "problem_id"); // Required parameter
     
-    auto use_emhd = pin->GetOrAddBoolean("emhd", "on", false); // Needed to check if it's an EMHD torus
-    
     if (MPIRank0()) {
         std::cout << "Initializing problem: " << prob << std::endl;
     }
     TaskStatus status = TaskStatus::fail;
-    // GRMHD
+    // MHD
     if (prob == "mhdmodes") {
-        status = InitializeMHDModes(rc.get(), pin);
+        status = InitializeMHDModes(rc, pin);
     } else if (prob == "orszag_tang") {
-        status = InitializeOrszagTang(rc.get(), pin);
+        status = InitializeOrszagTang(rc, pin);
     } else if (prob == "explosion") {
-        status = InitializeExplosion(rc.get(), pin);
+        status = InitializeExplosion(rc, pin);
     } else if (prob == "kelvin_helmholtz") {
-        status = InitializeKelvinHelmholtz(rc.get(), pin);
+        status = InitializeKelvinHelmholtz(rc, pin);
     } else if (prob == "shock") {
-        status = InitializeShockTube(rc.get(), pin);
+        status = InitializeShockTube(rc, pin);
+    // GRMHD
     } else if (prob == "bondi") {
-        status = InitializeBondi(rc.get(), pin);
+        status = InitializeBondi(rc, pin);
     } else if (prob == "bz_monopole") {
-        status = InitializeBZMonopole(rc.get(), pin);
+        status = InitializeBZMonopole(rc, pin);
     // Electrons
     } else if (prob == "noh") {
-        status = InitializeNoh(rc.get(), pin);
+        status = InitializeNoh(rc, pin);
     } else if (prob == "hubble") {
-        status = InitializeHubble(rc.get(), pin);
+        status = InitializeHubble(rc, pin);
     } else if (prob == "driven_turbulence") {
-        status = InitializeDrivenTurbulence(rc.get(), pin);
+        status = InitializeDrivenTurbulence(rc, pin);
     // Extended GRMHD
     } else if (prob == "emhdmodes") {
-        status = InitializeEMHDModes(rc.get(), pin);
+        status = InitializeEMHDModes(rc, pin);
     } else if (prob == "anisotropic_conduction") {
-        status = InitializeAnisotropicConduction(rc.get(), pin);
+        status = InitializeAnisotropicConduction(rc, pin);
     } else if (prob == "emhdshock") {
-        status = InitializeEMHDShock(rc.get(), pin);
+        status = InitializeEMHDShock(rc, pin);
     } else if (prob == "conducting_atmosphere") {
-        status = InitializeAtmosphere(rc.get(), pin);
+        status = InitializeAtmosphere(rc, pin);
     } else if (prob == "bondi_viscous") {
-        status = InitializeBondiViscous(rc.get(), pin);
+        // Alternate defaults for compatibility
+        pin->GetOrAddBoolean("bondi", "set_b", true);
+        pin->GetOrAddReal("bondi", "rin_bondi", 0.);
+        status = InitializeBondi(rc, pin);
     // Everything
-    } else if ((prob == "torus") && (!use_emhd)) {
-        status = InitializeFMTorus(rc.get(), pin);
-    } else if ((prob == "torus") && (use_emhd)){
-        status = InitializeFMTorusEMHD(rc.get(), pin);
+    } else if (prob == "torus") {
+        status = InitializeFMTorus(rc, pin);
     } else if (prob == "resize_restart") {
-        status = ReadIharmRestart(rc.get(), pin);
+        status = ReadIharmRestart(rc, pin);
     }
 
     // If we didn't initialize a problem, yell
@@ -135,40 +137,25 @@ void KHARMA::ProblemGenerator(MeshBlock *pmb, ParameterInput *pin)
         // Perturb the internal energy a bit to encourage accretion
         // Note this defaults to zero & is basically turned on only for torii
         if (pin->GetOrAddReal("perturbation", "u_jitter", 0.0) > 0.0) {
-            PerturbU(rc.get(), pin);
+            PerturbU(rc, pin);
         }
 
         // Initialize electron entropies to defaults if enabled
         if (pmb->packages.AllPackages().count("Electrons")) {
-            Electrons::InitElectrons(rc.get(), pin);
+            Electrons::InitElectrons(rc, pin);
+        }
+
+        if (pmb->packages.AllPackages().count("EMHD")) {
+            EMHD::InitEMHDVariables(rc, pin);
         }
     }
 
-    // Note that at this stage we have initialized the fluid primitives ONLY in the torus.
-    // What this means is that in the following `PtoU` call, we will get the NaNs for the conserved vars
-    // outside the torus since the floors are not called yet (we need conserved vars for NOF floors).
-    // In the subsequent `ApplyFloors` call we are able to initialize the NOF floors despite this
-    // because it falls back to fluid frame floors in the event the UtoP is unsuccessful.
-    // TODO: Maybe let the user know that despite asking for NOF floors, fluid frame floors will be applied
-    // the very first time during problem init.
-    // For now, I've opened an issue on github to address this.
-
     // Fill the conserved variables U,
-    // which we'll treat as the independent/fundamental state.
-    // P is filled again from this later on
-    // Note this is needed *after* P is finalized, but
-    // *before* the floor call: normal-observer floors need U populated
-    Flux::PtoU(rc.get(), IndexDomain::interior);
+    // which we'll usually treat as the independent/fundamental state.
+    // This will need to be repeated once magnetic field is seeded
+    Flux::BlockPtoU(rc.get(), IndexDomain::interior);
 
-    // If we're not restarting, apply the floors
-    if (prob != "resize_restart") {
-        // This is purposefully done even if floors are disabled,
-        // as it is required for consistent initialization
-        // Note however we do *not* preserve any inversion flags in this call.
-        // There will be subsequent renormalization and re-inversion that will
-        // initialize those flags.
-        Floors::ApplyFloors(rc.get(), IndexDomain::interior);
-    }
+    // Floors are now only applied 
 
-    Flag(rc.get(), "Initialized Block");
+    Flag(rc, "Initialized Block");
 }

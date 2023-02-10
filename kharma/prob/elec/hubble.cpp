@@ -31,12 +31,12 @@
  *  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  *  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
 #include "hubble.hpp"
 
+#include "pack.hpp"
 #include "types.hpp"
 
-TaskStatus InitializeHubble(MeshBlockData<Real> *rc, ParameterInput *pin)
+TaskStatus InitializeHubble(std::shared_ptr<MeshBlockData<Real>>& rc, ParameterInput *pin)
 {
     Flag("Initializing Hubble Flow Electron Heating problem");
     auto pmb = rc->GetBlockPointer();
@@ -73,14 +73,20 @@ TaskStatus InitializeHubble(MeshBlockData<Real> *rc, ParameterInput *pin)
         pin->SetReal("parthenon/time", "tlim", dyntimes / v0);
     }
 
+    // Replace the boundary conditions
+    auto *bound_pkg = static_cast<KHARMAPackage*>(pmb->packages.Get("Boundaries").get());
+    bound_pkg->KHARMAInnerX1Boundary = SetHubble;
+    bound_pkg->KHARMAOuterX1Boundary = SetHubble;
+    bound_pkg->BlockApplyPrimSource = ApplyHubbleHeating;
+
     // Then call the general function to fill the grid
-    SetHubble(rc);
+    SetHubble(rc, IndexDomain::interior);
 
     Flag("Initialized");
     return TaskStatus::complete;
 }
 
-TaskStatus SetHubble(MeshBlockData<Real> *rc, IndexDomain domain, bool coarse)
+TaskStatus SetHubble(std::shared_ptr<MeshBlockData<Real>>& rc, IndexDomain domain, bool coarse)
 {
     Flag("Setting zones to Hubble Flow");
     auto pmb = rc->GetBlockPointer();
@@ -114,7 +120,7 @@ TaskStatus SetHubble(MeshBlockData<Real> *rc, IndexDomain domain, bool coarse)
         Real tobeu  = ug0 / pow(1 + v0*t, 2);
         if (!cooling) tobeu  = ug0 / pow(1 + v0*t, gam);
         pmb->par_for("hubble_init", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-            KOKKOS_LAMBDA_3D {
+            KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
                 Real X[GR_DIM];
                 G.coord_embed(k, j, i, Loci::center, X);
                 rho(k, j, i) = toberho;
@@ -134,7 +140,7 @@ TaskStatus SetHubble(MeshBlockData<Real> *rc, IndexDomain domain, bool coarse)
             // Without cooling, the entropy of electrons should stay the same, analytic solution.
             if (!cooling) tobeke = (gam - 2) * (game - 1)/(game - 2) * ue0/pow(rho0, game);
             pmb->par_for("hubble_init", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-                KOKKOS_LAMBDA_3D {
+                KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
                     ktot(k, j, i) = tobeke;
                     kel_const(k, j, i) = tobeke; //Since we are using fel = 1
                 }
@@ -155,7 +161,7 @@ TaskStatus SetHubble(MeshBlockData<Real> *rc, IndexDomain domain, bool coarse)
         Real context_t = (v0*context_X[1] - uvec(0, 0, context_index))/(uvec(0, 0, context_index)*v0);
         
         pmb->par_for("hubble_init", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-            KOKKOS_LAMBDA_3D {
+            KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
                 Real X[GR_DIM];
                 G.coord_embed(k, j, i, Loci::center, X);
                 rho(k, j, i) = rho(k, j, context_index);
@@ -166,7 +172,7 @@ TaskStatus SetHubble(MeshBlockData<Real> *rc, IndexDomain domain, bool coarse)
         if (pmb->packages.AllPackages().count("Electrons")) {
             GridScalar kel_const = rc->Get("prims.Kel_Constant").data;
             pmb->par_for("hubble_init", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
-                KOKKOS_LAMBDA_3D {
+                KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
                     kel_const(k, j, i) = kel_const(k, j, context_index);
                 }
             );
@@ -175,4 +181,35 @@ TaskStatus SetHubble(MeshBlockData<Real> *rc, IndexDomain domain, bool coarse)
     pmb->packages.Get("GRMHD")->UpdateParam<int>("counter", ++counter);
     Flag("Set");
     return TaskStatus::complete;
+}
+
+void ApplyHubbleHeating(MeshBlockData<Real> *mbase)
+{
+    Flag(mbase, "Applying heating");
+    auto pmb0 = mbase->GetBlockPointer();
+
+    PackIndexMap prims_map;
+    auto P_mbase = GRMHD::PackHDPrims(mbase, prims_map);
+    const VarMap m_p(prims_map, false);
+
+    Real Q = 0;
+    const Real dt = pmb0->packages.Get("Globals")->Param<Real>("dt_last");  // Close enough?
+    const Real t = pmb0->packages.Get("Globals")->Param<Real>("time") + 0.5*dt;
+    const Real v0 = pmb0->packages.Get("GRMHD")->Param<Real>("v0");
+    const Real ug0 = pmb0->packages.Get("GRMHD")->Param<Real>("ug0");
+    const Real gam = pmb0->packages.Get("GRMHD")->Param<Real>("gamma");
+    Q = (ug0 * v0 * (gam - 2) / pow(1 + v0 * t, 3));
+    IndexDomain domain = IndexDomain::interior;
+    auto ib = mbase->GetBoundsI(domain);
+    auto jb = mbase->GetBoundsJ(domain);
+    auto kb = mbase->GetBoundsK(domain);
+    auto block = IndexRange{0, P_mbase.GetDim(5)-1};
+    
+    pmb0->par_for("heating_substep", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
+            P_mbase(m_p.UU, k, j, i) += Q*dt*0.5;
+        }
+    );
+
+    Flag(mbase, "Applied heating");
 }
