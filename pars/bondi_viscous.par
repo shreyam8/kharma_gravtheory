@@ -34,8 +34,8 @@ reconstruction = weno5
 implicit       = true
 
 <b_field>
-implicit        = true
-initial_cleanup = false
+implicit = true
+type = monopole_cube
 
 <driver>
 type = imex
@@ -71,6 +71,7 @@ check_inflow_outer = false
 
 <debug>
 verbose = 1
+flag_verbose = 2
 
 <parthenon/output0>
 file_type               = hdf5

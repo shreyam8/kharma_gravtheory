@@ -93,7 +93,7 @@ TaskStatus Packages::MeshUtoP(MeshData<Real> *md, IndexDomain domain, bool coars
 
 TaskStatus Packages::BlockUtoPExceptMHD(MeshBlockData<Real> *rc, IndexDomain domain, bool coarse)
 {
-    Flag(rc, "Filling derived variables on boundaries");
+    Flag(rc, "Recovering primitive variables on boundaries");
     // We need to re-fill the primitive variables on the physical boundaries,
     // since the driver has already called UtoP for the step.
     // However, this does *not* apply to the GRMHD variables, as the boundary call
@@ -107,7 +107,7 @@ TaskStatus Packages::BlockUtoPExceptMHD(MeshBlockData<Real> *rc, IndexDomain dom
             }
         }
     }
-    Flag(rc, "Filled");
+    Flag(rc, "Recovered");
     return TaskStatus::complete;
 }
 TaskStatus Packages::MeshUtoPExceptMHD(MeshData<Real> *md, IndexDomain domain, bool coarse)
@@ -159,9 +159,11 @@ TaskStatus Packages::BlockApplyFloors(MeshBlockData<Real> *mbd, IndexDomain doma
     }
     // Then anything else
     for (auto &package : mbd->GetBlockPointer()->packages.AllPackages()) {
-        if (KHARMAPackage *kpackage = dynamic_cast<KHARMAPackage*>(package.second.get())) {
-            if (kpackage->BlockApplyFloors != nullptr)
-                kpackage->BlockApplyFloors(mbd, domain);
+        if (package.first != "Floors") {
+            if (KHARMAPackage *kpackage = dynamic_cast<KHARMAPackage*>(package.second.get())) {
+                if (kpackage->BlockApplyFloors != nullptr)
+                    kpackage->BlockApplyFloors(mbd, domain);
+            }
         }
     }
     Flag("Applied");

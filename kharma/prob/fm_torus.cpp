@@ -106,7 +106,7 @@ TaskStatus InitializeFMTorus(std::shared_ptr<MeshBlockData<Real>>& rc, Parameter
                 Real SS = r2 + a2 * cth * cth;
 
                 // Calculate rho and u
-                Real hm1   = exp(lnh) - 1.;
+                Real hm1   = m::exp(lnh) - 1.;
                 Real rho_l = m::pow(hm1 * (gam - 1.) / (kappa * gam), 1. / (gam - 1.));
                 Real u_l   = kappa * m::pow(rho_l, gam) / (gam - 1.);
 
@@ -174,6 +174,7 @@ TaskStatus InitializeFMTorus(std::shared_ptr<MeshBlockData<Real>>& rc, Parameter
         //cout << "nx2 = " << nx2 << std::endl;
     }
 
+    // TODO split this out
     Real rho_max = 0;
     Kokkos::Max<Real> max_reducer(rho_max);
     pmb->par_reduce("fm_torus_maxrho", 0, nx1,
@@ -212,7 +213,7 @@ TaskStatus InitializeFMTorus(std::shared_ptr<MeshBlockData<Real>>& rc, Parameter
     // Since the conserved vars U are not initialized, this is done in *fluid frame*,
     // even if NOF frame is chosen (iharm3d does the same iiuc)
     // This is probably not a huge issue, just good to state explicitly
-    Floors::ApplyGRMHDFloors(rc.get(), IndexDomain::interior);
+    Floors::ApplyInitialFloors(rc.get(), IndexDomain::interior);
 
     return TaskStatus::complete;
 }

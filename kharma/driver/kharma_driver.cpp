@@ -98,10 +98,8 @@ std::shared_ptr<KHARMAPackage> KHARMADriver::Initialize(ParameterInput *pin, std
     // When using the Implicit package we need to globally distinguish implicitly and explicitly-updated variables
     // All independent variables should be marked one or the other,
     // so we define the flags here to avoid loading order issues
-    MetadataFlag isImplicit = Metadata::AllocateNewFlag("Implicit");
-    params.Add("ImplicitFlag", isImplicit);
-    MetadataFlag isExplicit = Metadata::AllocateNewFlag("Explicit");
-    params.Add("ExplicitFlag", isExplicit);
+    Metadata::AddUserFlag("Implicit");
+    Metadata::AddUserFlag("Explicit");
 
     // Keep track of numbers of variables
     params.Add("n_explicit_vars", 0, true);
@@ -185,7 +183,7 @@ void KHARMADriver::SyncAllBounds(std::shared_ptr<MeshData<Real>> md, bool apply_
         TaskCollection tc;
         auto tr = tc.AddRegion(1);
         AddMPIBoundarySync(t_none, tr[0], md);
-        while (tc.Execute() != TaskListStatus::complete);
+        while (!tr.Execute());
 
         // Then PtoU
         for (auto &pmb : block_list) {
@@ -214,7 +212,7 @@ void KHARMADriver::SyncAllBounds(std::shared_ptr<MeshData<Real>> md, bool apply_
         TaskCollection tc;
         auto tr = tc.AddRegion(1);
         AddMPIBoundarySync(t_none, tr[0], md);
-        while (tc.Execute() != TaskListStatus::complete);
+        while (!tr.Execute());
 
         // 3. UtoP everywhere
         for (auto &pmb : block_list) {
@@ -274,9 +272,4 @@ TaskID KHARMADriver::AddFluxCalculations(TaskID& t_start, TaskList& tl, KReconst
         throw std::invalid_argument("Unsupported reconstruction algorithm!");
     }
     return t_calculate_flux1 | t_calculate_flux2 | t_calculate_flux3;
-}
-
-TaskStatus KHARMADriver::Copy(std::vector<MetadataFlag> flags, MeshData<Real>* source, MeshData<Real>* dest)
-{
-    return Update::WeightedSumData<MetadataFlag, MeshData<Real>>(flags, source, source, 1., 0., dest);
 }

@@ -138,28 +138,22 @@ std::shared_ptr<KHARMAPackage> Initialize(ParameterInput *pin, std::shared_ptr<P
     // closely-related size (for "Face" and "Edge" fields)
 
     // Add flags to distinguish groups of fields.
-    // This is stretching what the "Params" object should really be carrying,
-    // but the flag values are necessary in many places, and this was the
-    // easiest way to ensure availability.
     // 1. One flag to mark the primitive variables specifically
     // (Parthenon has Metadata::Conserved already)
-    MetadataFlag isPrimitive = Metadata::AllocateNewFlag("Primitive");
-    params.Add("PrimitiveFlag", isPrimitive);
+    Metadata::AddUserFlag("Primitive");
     // 2. And one for hydrodynamics (everything we directly handle in this package)
-    MetadataFlag isHD = Metadata::AllocateNewFlag("HD");
-    params.Add("HDFlag", isHD);
+    Metadata::AddUserFlag("HD");
     // 3. And one for magnetohydrodynamics
     // (all HD fields plus B field, which we'll need to make use of)
-    MetadataFlag isMHD = Metadata::AllocateNewFlag("MHD");
-    params.Add("MHDFlag", isMHD);
+    Metadata::AddUserFlag("MHD");
     // Mark whether to evolve our variables via the explicit or implicit step inside the driver
-    MetadataFlag areWeImplicit = (implicit_grmhd) ? driver.Get<MetadataFlag>("ImplicitFlag")
-                                                  : driver.Get<MetadataFlag>("ExplicitFlag");
+    MetadataFlag areWeImplicit = (implicit_grmhd) ? Metadata::GetUserFlag("Implicit")
+                                                  : Metadata::GetUserFlag("Explicit");
 
     std::vector<MetadataFlag> flags_prim = {Metadata::Real, Metadata::Cell, Metadata::Derived, areWeImplicit,
-                                            Metadata::Restart, isPrimitive, isHD, isMHD};
+                                            Metadata::Restart, Metadata::GetUserFlag("Primitive"), Metadata::GetUserFlag("HD"), Metadata::GetUserFlag("MHD")};
     std::vector<MetadataFlag> flags_cons = {Metadata::Real, Metadata::Cell, Metadata::Independent, areWeImplicit,
-                                            Metadata::WithFluxes, Metadata::Conserved, isHD, isMHD};
+                                            Metadata::WithFluxes, Metadata::Conserved, Metadata::GetUserFlag("HD"), Metadata::GetUserFlag("MHD")};
 
     bool sync_prims = packages->Get("Driver")->Param<bool>("sync_prims");
     if (!sync_prims) { // Normal operation

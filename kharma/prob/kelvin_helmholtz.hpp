@@ -84,8 +84,8 @@ TaskStatus InitializeKelvinHelmholtz(std::shared_ptr<MeshBlockData<Real>>& rc, P
             u(k, j, i) = P0 / (gam - 1.);
             uvec(0, k, j, i) = uflow * (tanh((z - z1) / a) - tanh((z - z2) / a) - 1.);
             uvec(1, k, j, i) = A * sin(2. * M_PI * x) *
-                        (exp(-(z - z1) * (z - z1) / (sigma * sigma)) +
-                        exp(-(z - z2) * (z - z2) / (sigma * sigma)));
+                        (m::exp(-(z - z1) * (z - z1) / (sigma * sigma)) +
+                        m::exp(-(z - z2) * (z - z2) / (sigma * sigma)));
             uvec(2, k, j, i) = 0;
         }
     );

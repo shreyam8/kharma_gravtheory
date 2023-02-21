@@ -96,7 +96,7 @@ void InsertBlob(MeshBlockData<Real> *rc, ParameterInput *pin)
 
                     // P(m_p.RHO, k, j, i) = rho_out + ramp * (rho_in - rho_out);
                     Real lrho_factor_in = log(rho_factor);
-                    P(m_p.RHO, k, j, i) *= exp(ramp * lrho_factor_in);
+                    P(m_p.RHO, k, j, i) *= m::exp(ramp * lrho_factor_in);
 
                     P(m_p.UU, k, j, i) = u_over_rho * P(m_p.RHO, k, j, i);
                 }

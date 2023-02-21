@@ -44,9 +44,11 @@
 
 #if DISABLE_CLEANUP
 
+// The package should never be loaded if there is not a global solve to be done.
+// Therefore we yell at load time rather than waiting for the first solve
 std::shared_ptr<KHARMAPackage> B_Cleanup::Initialize(ParameterInput *pin, std::shared_ptr<Packages_t>& packages)
 {throw std::runtime_error("KHARMA was compiled without global solvers!  Cannot clean B Field!");}
-
+// We still need a stub for CleanupDivergence() in order to compile, but it will never be called
 void B_Cleanup::CleanupDivergence(std::shared_ptr<MeshData<Real>>& md) {}
 
 #else
@@ -149,7 +151,6 @@ void B_Cleanup::CleanupDivergence(std::shared_ptr<MeshData<Real>>& md)
     auto always_solve = pkg->Param<bool>("always_solve");
     auto solver = pkg->Param<BiCGStabSolver<int>>("solver");
     auto verbose = pmesh->packages.Get("Globals")->Param<int>("verbose");
-    MetadataFlag isMHD = pmesh->packages.Get("GRMHD")->Param<MetadataFlag>("MHDFlag");
 
     if (MPIRank0() && verbose > 0) {
         std::cout << "Cleaning divB to relative tolerance " << rel_tolerance << std::endl;
@@ -186,7 +187,7 @@ void B_Cleanup::CleanupDivergence(std::shared_ptr<MeshData<Real>>& md)
     // There's no MeshData-wide 'Remove' so we go block-by-block
     for (auto& pmb : pmesh->block_list) {
         auto rc_s = pmb->meshblock_data.Get("solve");
-        auto varlabels = rc_s->GetVariablesByFlag({isMHD}, true).labels();
+        auto varlabels = rc_s->GetVariablesByFlag({Metadata::GetUserFlag("MHD")}).labels();
         for (auto varlabel : varlabels) {
             rc_s->Remove(varlabel);
         }
@@ -199,7 +200,7 @@ void B_Cleanup::CleanupDivergence(std::shared_ptr<MeshData<Real>>& md)
     TaskCollection tc;
     auto tr = tc.AddRegion(1);
     auto t_solve_step = solver.CreateTaskList(t_none, 0, tr, md, msolve);
-    while (tc.Execute() != TaskListStatus::complete);
+    while (!tr.Execute());
     // Make sure solution's ghost zones are sync'd
     KHARMADriver::SyncAllBounds(msolve);
 

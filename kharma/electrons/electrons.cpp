@@ -137,22 +137,14 @@ std::shared_ptr<KHARMAPackage> Initialize(ParameterInput *pin, std::shared_ptr<P
     bool implicit_e = (driver_type == "imex" && pin->GetOrAddBoolean("electrons", "implicit", grmhd_implicit)); // so this false too
     params.Add("implicit", implicit_e);
 
-    MetadataFlag isPrimitive = packages->Get("GRMHD")->Param<MetadataFlag>("PrimitiveFlag");
-    MetadataFlag isElectrons = Metadata::AllocateNewFlag("Electrons");
-    params.Add("ElectronsFlag", isElectrons);
-    MetadataFlag areWeImplicit = (implicit_e) ? driver.Get<MetadataFlag>("ImplicitFlag")
-                                              : driver.Get<MetadataFlag>("ExplicitFlag");
+    Metadata::AddUserFlag("Electrons");
+    MetadataFlag areWeImplicit = (implicit_e) ? Metadata::GetUserFlag("Implicit")
+                                              : Metadata::GetUserFlag("Explicit");
 
     std::vector<MetadataFlag> flags_cons = {Metadata::Real, Metadata::Cell, Metadata::Independent, Metadata::Conserved,
-                                            Metadata::WithFluxes, areWeImplicit, isElectrons};
-    std::vector<MetadataFlag> flags_prim = {Metadata::Real, Metadata::Cell, Metadata::Derived, isPrimitive,
-                                            Metadata::Restart, areWeImplicit, isElectrons};
-
-    if (driver.Get<bool>("sync_prims")) {
-        flags_prim.push_back(Metadata::FillGhost);
-    } else {
-        flags_cons.push_back(Metadata::FillGhost);
-    }
+                                            Metadata::WithFluxes, Metadata::FillGhost, areWeImplicit, Metadata::GetUserFlag("Electrons")};
+    std::vector<MetadataFlag> flags_prim = {Metadata::Real, Metadata::Cell, Metadata::Derived, Metadata::GetUserFlag("Primitive"),
+                                            Metadata::Restart, areWeImplicit, Metadata::GetUserFlag("Electrons")};
 
     // Total entropy, used to track changes
     int nKs = 1;
@@ -231,11 +223,9 @@ TaskStatus InitElectrons(std::shared_ptr<MeshBlockData<Real>>& rc, ParameterInpu
         return TaskStatus::complete;
     }
 
-    MetadataFlag isElectrons = pmb->packages.Get("Electrons")->Param<MetadataFlag>("ElectronsFlag");
-    MetadataFlag isPrimitive = pmb->packages.Get("GRMHD")->Param<MetadataFlag>("PrimitiveFlag");
     // Need to distinguish KTOT from the other variables, so we record which it is
     PackIndexMap prims_map;
-    auto& e_P = rc->PackVariables({isElectrons, isPrimitive}, prims_map);
+    auto& e_P = rc->PackVariables({Metadata::GetUserFlag("Electrons"), Metadata::GetUserFlag("Primitive")}, prims_map);
     const int ktot_index = prims_map["prims.Ktot"].first;
     // Just need these two from the rest of Prims
     GridScalar rho = rc->Get("prims.rho").data;
@@ -272,11 +262,9 @@ void BlockUtoP(MeshBlockData<Real> *rc, IndexDomain domain, bool coarse)
     Flag(rc, "UtoP electrons");
     auto pmb = rc->GetBlockPointer();
 
-    MetadataFlag isElectrons = pmb->packages.Get("Electrons")->Param<MetadataFlag>("ElectronsFlag");
-    MetadataFlag isPrimitive = pmb->packages.Get("GRMHD")->Param<MetadataFlag>("PrimitiveFlag");
     // No need for a "map" here, we just want everything that fits these
-    auto& e_P = rc->PackVariables({isElectrons, isPrimitive});
-    auto& e_U = rc->PackVariables({isElectrons, Metadata::Conserved});
+    auto& e_P = rc->PackVariables({Metadata::GetUserFlag("Electrons"), Metadata::GetUserFlag("Primitive")});
+    auto& e_U = rc->PackVariables({Metadata::GetUserFlag("Electrons"), Metadata::Conserved});
     // And then the local density
     GridScalar rho_U = rc->Get("cons.rho").data;
 
@@ -298,10 +286,8 @@ void BlockPtoU(MeshBlockData<Real> *rc, IndexDomain domain, bool coarse)
     Flag(rc, "PtoU electrons");
     auto pmb = rc->GetBlockPointer();
 
-    MetadataFlag isElectrons = pmb->packages.Get("Electrons")->Param<MetadataFlag>("ElectronsFlag");
-    MetadataFlag isPrimitive = pmb->packages.Get("GRMHD")->Param<MetadataFlag>("PrimitiveFlag");
     PackIndexMap prims_map, cons_map;
-    auto& P = rc->PackVariables({isPrimitive}, prims_map);
+    auto& P = rc->PackVariables({Metadata::GetUserFlag("Primitive")}, prims_map);
     auto& U = rc->PackVariables({Metadata::Conserved}, cons_map);
     const VarMap m_p(prims_map, false), m_u(cons_map, true);
     // And then the local density
@@ -325,15 +311,13 @@ TaskStatus ApplyElectronHeating(MeshBlockData<Real> *rc_old, MeshBlockData<Real>
     Flag(rc, "Applying electron heating");
     auto pmb = rc->GetBlockPointer();
 
-    MetadataFlag isElectrons = pmb->packages.Get("Electrons")->Param<MetadataFlag>("ElectronsFlag");
-    MetadataFlag isPrimitive = pmb->packages.Get("GRMHD")->Param<MetadataFlag>("PrimitiveFlag");
     // Need to distinguish different electron models
     // So far, Parthenon's maps of the same sets of variables are consistent,
     // so we only bother with one map of the primitives
     // TODO Parthenon can definitely build a pack from a map, though
     PackIndexMap prims_map, cons_map;
-    auto& P = rc_old->PackVariables({isPrimitive}, prims_map);
-    auto& P_new = rc->PackVariables({isPrimitive}, prims_map);
+    auto& P = rc_old->PackVariables({Metadata::GetUserFlag("Primitive")}, prims_map);
+    auto& P_new = rc->PackVariables({Metadata::GetUserFlag("Primitive")}, prims_map);
     auto& U_new = rc->PackVariables({Metadata::Conserved}, cons_map);
     const VarMap m_p(prims_map, false), m_u(cons_map, true);
 
@@ -422,7 +406,7 @@ TaskStatus ApplyElectronHeating(MeshBlockData<Real> *rc_old, MeshBlockData<Real>
                 const Real c3 = (Trat <= 1.) ? 18. + 5.*logTrat : 18.;
 
                 const Real beta_pow = m::pow(beta, mbeta);
-                const Real qrat = 0.92 * (c2*c2 + beta_pow)/(c3*c3 + beta_pow) * exp(-1./beta) * m::sqrt(MP/ME * Trat);
+                const Real qrat = 0.92 * (c2*c2 + beta_pow)/(c3*c3 + beta_pow) * m::exp(-1./beta) * m::sqrt(MP/ME * Trat);
                 const Real fel = 1./(1. + qrat);
                 P_new(m_p.K_HOWES, k, j, i) = clip(P_new(m_p.K_HOWES, k, j, i) + fel * diss, kel_min, kel_max);
             }
@@ -434,7 +418,7 @@ TaskStatus ApplyElectronHeating(MeshBlockData<Real> *rc_old, MeshBlockData<Real>
                 const Real pres = P(m_p.RHO, k, j, i) * Tpr; // Proton pressure
                 const Real beta = m::min(pres / bsq * 2, 1.e20);// If somebody enables electrons in a GRHD sim
 
-                const Real QiQe = 35. / (1. + m::pow(beta/15., -1.4) * exp(-0.1 / Trat));
+                const Real QiQe = 35. / (1. + m::pow(beta/15., -1.4) * m::exp(-0.1 / Trat));
                 const Real fel = 1./(1. + QiQe);
                 P_new(m_p.K_KAWAZURA, k, j, i) = clip(P_new(m_p.K_KAWAZURA, k, j, i) + fel * diss, kel_min, kel_max);
             }
@@ -452,7 +436,7 @@ TaskStatus ApplyElectronHeating(MeshBlockData<Real> *rc_old, MeshBlockData<Real>
                 const Real beta = pres / bsq * 2;
                 const Real sigma = bsq / (P(m_p.RHO, k, j, i) + P(m_p.UU, k, j, i) + pg);
                 const Real betamax = 0.25 / sigma;
-                const Real fel = 0.5 * exp(-m::pow(1 - beta/betamax, 3.3) / (1 + 1.2*m::pow(sigma, 0.7)));
+                const Real fel = 0.5 * m::exp(-m::pow(1 - beta/betamax, 3.3) / (1 + 1.2*m::pow(sigma, 0.7)));
                 P_new(m_p.K_ROWAN, k, j, i) = clip(P_new(m_p.K_ROWAN, k, j, i) + fel * diss, kel_min, kel_max);
             }
             if (m_p.K_SHARMA >= 0) {

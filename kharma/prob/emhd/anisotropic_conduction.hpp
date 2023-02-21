@@ -73,7 +73,7 @@ TaskStatus InitializeAnisotropicConduction(std::shared_ptr<MeshBlockData<Real>>&
             GReal r = m::sqrt(m::pow((X[1] - 0.5), 2) + m::pow((X[2] - 0.5), 2));
 
             // Initialize primitives
-            rho(k, j, i) = 1 - (A * exp(-m::pow(r, 2) / m::pow(R, 2)));
+            rho(k, j, i) = 1 - (A * m::exp(-m::pow(r, 2) / m::pow(R, 2)));
             u(k, j, i) = 1.;
             uvec(0, k, j, i) = 0.;
             uvec(1, k, j, i) = 0.;

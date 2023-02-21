@@ -41,9 +41,11 @@
 
 #if DISABLE_IMPLICIT
 
+// The package should never be loaded if there are not implicitly-evolved variables
+// Therefore we yell at load time rather than waiting for the first solve
 std::shared_ptr<KHARMAPackage> Implicit::Initialize(ParameterInput *pin, std::shared_ptr<Packages_t>& packages)
 { throw std::runtime_error("KHARMA was compiled without implicit stepping support!"); }
-
+// We still need a stub for Step() in order to compile, but it will never be called
 TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_sub_step_init, MeshData<Real> *md_flux_src,
                 MeshData<Real> *md_linesearch, MeshData<Real> *md_solver, const Real& dt) {}
 
@@ -60,17 +62,15 @@ TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_
 std::vector<std::string> Implicit::get_ordered_names(MeshBlockData<Real> *rc, const MetadataFlag& flag, bool only_implicit)
 {
     auto pmb0 = rc->GetBlockPointer();
-    MetadataFlag isImplicit = pmb0->packages.Get("Driver")->Param<MetadataFlag>("ImplicitFlag");
-    MetadataFlag isExplicit = pmb0->packages.Get("Driver")->Param<MetadataFlag>("ExplicitFlag");
     std::vector<std::string> out;
-    auto vars = rc->GetVariablesByFlag(std::vector<MetadataFlag>({isImplicit, flag}), true).labels();
+    auto vars = rc->GetVariablesByFlag(std::vector<MetadataFlag>({Metadata::GetUserFlag("Implicit"), flag})).labels();
     for (int i=0; i < vars.size(); ++i) {
         if (rc->Contains(vars[i])) {
             out.push_back(vars[i]);
         }
     }
     if (!only_implicit) {
-        vars = rc->GetVariablesByFlag(std::vector<MetadataFlag>({isExplicit, flag}), true).labels();
+        vars = rc->GetVariablesByFlag(std::vector<MetadataFlag>({Metadata::GetUserFlag("Explicit"), flag})).labels();
         for (int i=0; i < vars.size(); ++i) {
             if (rc->Contains(vars[i])) {
                 out.push_back(vars[i]);
@@ -95,12 +95,9 @@ std::shared_ptr<KHARMAPackage> Implicit::Initialize(ParameterInput *pin, std::sh
     params.Add("min_nonlinear_iter", min_nonlinear_iter);
     int max_nonlinear_iter = pin->GetOrAddInteger("implicit", "max_nonlinear_iter", 3);
     params.Add("max_nonlinear_iter", max_nonlinear_iter);
-    // The QR decomposition seems more stable on CPUs, but LU wins on GPUs
-#ifdef KOKKOS_ENABLE_CUDA
-    bool use_qr = pin->GetOrAddBoolean("implicit", "use_qr", false);
-#else
+    // The QR decomposition bundled with KHARMA has column pivoting for stability.
+    // The alternative LU decomposition does not, and should mostly be used for debugging.
     bool use_qr = pin->GetOrAddBoolean("implicit", "use_qr", true);
-#endif
     params.Add("use_qr", use_qr);
 
     bool linesearch = pin->GetOrAddBoolean("implicit", "linesearch", true);
@@ -201,9 +198,8 @@ TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_
     // I don't normally do this, but we *really* care about variable ordering here.
     // The implicit variables need to be first, so we know how to iterate over just them to fill
     // just the residual & Jacobian we care about, which makes the solve faster.
-    MetadataFlag isPrimitive  = pmb_sub_step_init->packages.Get("GRMHD")->Param<MetadataFlag>("PrimitiveFlag");
     auto& mbd_full_step_init  = md_full_step_init->GetBlockData(0); // MeshBlockData object, more member functions
-    auto ordered_prims        = get_ordered_names(mbd_full_step_init.get(), isPrimitive);
+    auto ordered_prims        = get_ordered_names(mbd_full_step_init.get(), Metadata::GetUserFlag("Primitive"));
     auto ordered_cons         = get_ordered_names(mbd_full_step_init.get(), Metadata::Conserved);
     //std::cerr << "Ordered prims:"; for(auto prim: ordered_prims) std::cerr << " " << prim; std::cerr << std::endl;
     //std::cerr << "Ordered cons:"; for(auto con: ordered_cons) std::cerr << " " << con; std::cerr << std::endl;
@@ -226,7 +222,7 @@ TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_
     const int nblock = U_full_step_init_all.GetDim(5);
     const int nvar   = U_full_step_init_all.GetDim(4);
     // Get number of implicit variables
-    auto implicit_vars = get_ordered_names(mbd_full_step_init.get(), isPrimitive, true);
+    auto implicit_vars = get_ordered_names(mbd_full_step_init.get(), Metadata::GetUserFlag("Primitive"), true);
     PackIndexMap implicit_prims_map;
     auto& P_full_step_init_implicit = md_full_step_init->PackVariables(implicit_vars, implicit_prims_map);
     const int nfvar = P_full_step_init_implicit.GetDim(4);
@@ -300,7 +296,7 @@ TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_
                 ScratchPad3D<Real> jacobian_s(member.team_scratch(scratch_level), nfvar, nfvar, n1);
                 ScratchPad2D<Real> residual_s(member.team_scratch(scratch_level), nfvar, n1);
                 ScratchPad2D<Real> delta_prim_s(member.team_scratch(scratch_level), nfvar, n1);
-                ScratchPad2D<int> pivot_s(member.team_scratch(scratch_level), n1, nfvar);
+                ScratchPad2D<int> pivot_s(member.team_scratch(scratch_level), nfvar, n1);
                 ScratchPad2D<Real> trans_s(member.team_scratch(scratch_level), nfvar, n1);
                 ScratchPad2D<Real> work_s(member.team_scratch(scratch_level), 2*nfvar, n1);
                 // tmp2 holds a residual with only implicit variable errors
@@ -345,14 +341,14 @@ TaskStatus Implicit::Step(MeshData<Real> *md_full_step_init, MeshData<Real> *md_
                     parthenon::par_for_inner(member, 0, n1-1,
                         [&](const int& i) {
                             for(int jp=0; jp < nfvar; ++jp)
-                                jacobian_s(i, ip, jp) = 0.;
-                            residual_s(i, ip) = 0.;
-                            delta_prim_s(i, ip) = 0.;
-                            pivot_s(i, ip) = 0;
-                            trans_s(i, ip) = 0.;
-                            work_s(i, ip) = 0.;
-                            work_s(i, ip+nfvar) = 0.;
-                            tmp2_s(i, ip) = 0.;
+                                jacobian_s(ip, jp, i) = 0.;
+                            residual_s(ip, i) = 0.;
+                            delta_prim_s(ip, i) = 0.;
+                            pivot_s(ip, i) = 0;
+                            trans_s(ip, i) = 0.;
+                            work_s(ip, i) = 0.;
+                            work_s(ip+nfvar, i) = 0.;
+                            tmp2_s(ip, i) = 0.;
                         }
                     );
                 }

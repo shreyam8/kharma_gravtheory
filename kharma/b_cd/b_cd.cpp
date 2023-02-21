@@ -69,15 +69,13 @@ std::shared_ptr<KHARMAPackage> Initialize(ParameterInput *pin, std::shared_ptr<P
 
     std::vector<int> s_vector({NVEC});
 
-    MetadataFlag isPrimitive = packages->Get("GRMHD")->Param<MetadataFlag>("PrimitiveFlag");
-
     // B field as usual
     // TODO allow for implicit B here
     Metadata m = Metadata({Metadata::Real, Metadata::Cell, Metadata::Independent, Metadata::FillGhost,
                  Metadata::Restart, Metadata::Conserved, Metadata::WithFluxes, Metadata::Vector}, s_vector);
     pkg->AddField("cons.B", m);
     m = Metadata({Metadata::Real, Metadata::Cell, Metadata::Derived,
-                  Metadata::Restart, isPrimitive, Metadata::Vector}, s_vector);
+                  Metadata::Restart, Metadata::GetUserFlag("Primitive"), Metadata::Vector}, s_vector);
     pkg->AddField("prims.B", m);
 
     // Constraint damping scalar field psi.  Prim and cons forms correspond to B field forms,
@@ -87,7 +85,7 @@ std::shared_ptr<KHARMAPackage> Initialize(ParameterInput *pin, std::shared_ptr<P
                   Metadata::Restart, Metadata::Conserved, Metadata::WithFluxes});
     pkg->AddField("cons.psi_cd", m);
     m = Metadata({Metadata::Real, Metadata::Cell, Metadata::Derived,
-                  Metadata::Restart, isPrimitive});
+                  Metadata::Restart, Metadata::GetUserFlag("Primitive")});
     pkg->AddField("prims.psi_cd", m);
 
     // We only update the divB field for output

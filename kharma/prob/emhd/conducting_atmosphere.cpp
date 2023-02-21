@@ -73,10 +73,8 @@ TaskStatus InitializeAtmosphere(std::shared_ptr<MeshBlockData<Real>>& rc, Parame
     const Real& gam        = grmhd_pars.Get<Real>("gamma");
 
     // Get all primitive variables (GRMHD+EMHD if in use)
-    MetadataFlag isPrimitive = pmb->packages.Get("GRMHD")->Param<MetadataFlag>("PrimitiveFlag");
-
     PackIndexMap prims_map;
-    auto P = rc->PackVariables({isPrimitive}, prims_map);
+    auto P = rc->PackVariables({Metadata::GetUserFlag("Primitive")}, prims_map);
     VarMap m_p(prims_map, false);
 
     const int nvar = P.GetDim(4);
@@ -91,7 +89,8 @@ TaskStatus InitializeAtmosphere(std::shared_ptr<MeshBlockData<Real>>& rc, Parame
     IndexRange jb = pmb->cellbounds.GetBoundsJ(IndexDomain::entire);
     IndexRange kb = pmb->cellbounds.GetBoundsK(IndexDomain::entire);
 
-    // Load file names into strings (TODO std::stringize. Auto directory and/or embed in exe?)
+    // Load file names into strings
+    // TODO store as single file table. HDF5?
     char fode_rCoords[STRLEN], fode_rho[STRLEN], fode_u[STRLEN], fode_q[STRLEN];
     sprintf(fode_rCoords, "atmosphere_soln_rCoords.txt");
     sprintf(fode_rho,     "atmosphere_soln_rho.txt");
@@ -103,8 +102,14 @@ TaskStatus InitializeAtmosphere(std::shared_ptr<MeshBlockData<Real>>& rc, Parame
     fp_r   = fopen(fode_rCoords, "r");
     fp_rho = fopen(fode_rho, "r");
     fp_u   = fopen(fode_u,   "r");
+    if (fp_r == NULL || fp_rho == NULL || fp_u == NULL) {
+        throw std::runtime_error("Could not open conducting atmosphere solution!");
+    }
     if (use_emhd) {
         fp_q = fopen(fode_q, "r");
+        if (fp_q == NULL) {
+            throw std::runtime_error("Could not open conducting atmosphere solution!");
+        }
     }
 
     // Get primitives individually, so we can use GetHostMirror()
@@ -245,41 +250,42 @@ TaskStatus InitializeAtmosphere(std::shared_ptr<MeshBlockData<Real>>& rc, Parame
                     q_host(k, j, i)   = q_tilde;
                     dP_host(k, j, i)  = dP_tilde;
                 }
-            }
-        }
 
-        // Save boundary values for Dirichlet boundary conditions
-        if (i < ng) {
-            p_bound_left_host(m_p.RHO, i) = rho_host(0, ng, i);
-            p_bound_left_host(m_p.UU, i) = u_host(0, ng, i);
-            p_bound_left_host(m_p.U1, i) = uvec_host(V1, 0, ng, i);
-            p_bound_left_host(m_p.U2, i) = uvec_host(V2, 0, ng, i);
-            p_bound_left_host(m_p.U3, i) = uvec_host(V3, 0, ng, i);
-            p_bound_left_host(m_p.B1, i) = B_host(V1, 0, ng, i);
-            p_bound_left_host(m_p.B2, i) = B_host(V2, 0, ng, i);
-            p_bound_left_host(m_p.B3, i) = B_host(V3, 0, ng, i);
-            if (use_emhd) {
-                p_bound_left_host(m_p.Q, i) = q_host(0, ng, i);
-                p_bound_left_host(m_p.DP, i) = dP_host(0, ng, i);
-            }
-        } else if (i >= n1 + ng) {
-            int ii = i - (n1 + ng);
-            p_bound_right_host(m_p.RHO, ii) = rho_host(0, ng, i);
-            p_bound_right_host(m_p.UU, ii) = u_host(0, ng, i);
-            p_bound_right_host(m_p.U1, ii) = uvec_host(V1, 0, ng, i);
-            p_bound_right_host(m_p.U2, ii) = uvec_host(V2, 0, ng, i);
-            p_bound_right_host(m_p.U3, ii) = uvec_host(V3, 0, ng, i);
-            p_bound_right_host(m_p.B1, ii) = B_host(V1, 0, ng, i);
-            p_bound_right_host(m_p.B2, ii) = B_host(V2, 0, ng, i);
-            p_bound_right_host(m_p.B3, ii) = B_host(V3, 0, ng, i);
-            if (use_emhd) {
-                p_bound_right_host(m_p.Q, ii) = q_host(0, ng, i);
-                p_bound_right_host(m_p.DP, ii) = dP_host(0, ng, i);
+                // Save boundary values for Dirichlet boundary conditions
+                if (i < ng) {
+                    p_bound_left_host(m_p.RHO, k, j, i) = rho_host(k, j, i);
+                    p_bound_left_host(m_p.UU, k, j, i) = u_host(k, j, i);
+                    p_bound_left_host(m_p.U1, k, j, i) = uvec_host(V1, k, j, i);
+                    p_bound_left_host(m_p.U2, k, j, i) = uvec_host(V2, k, j, i);
+                    p_bound_left_host(m_p.U3, k, j, i) = uvec_host(V3, k, j, i);
+                    p_bound_left_host(m_p.B1, k, j, i) = B_host(V1, k, j, i);
+                    p_bound_left_host(m_p.B2, k, j, i) = B_host(V2, k, j, i);
+                    p_bound_left_host(m_p.B3, k, j, i) = B_host(V3, k, j, i);
+                    if (use_emhd) {
+                        p_bound_left_host(m_p.Q, k, j, i) = q_host(k, j, i);
+                        p_bound_left_host(m_p.DP, k, j, i) = dP_host(k, j, i);
+                    }
+                } else if (i >= n1 + ng) {
+                    int ii = i - (n1 + ng);
+                    p_bound_right_host(m_p.RHO, k, j, ii) = rho_host(k, j, i);
+                    p_bound_right_host(m_p.UU, k, j, ii) = u_host(k, j, i);
+                    p_bound_right_host(m_p.U1, k, j, ii) = uvec_host(V1, k, j, i);
+                    p_bound_right_host(m_p.U2, k, j, ii) = uvec_host(V2, k, j, i);
+                    p_bound_right_host(m_p.U3, k, j, ii) = uvec_host(V3, k, j, i);
+                    p_bound_right_host(m_p.B1, k, j, ii) = B_host(V1, k, j, i);
+                    p_bound_right_host(m_p.B2, k, j, ii) = B_host(V2, k, j, i);
+                    p_bound_right_host(m_p.B3, k, j, ii) = B_host(V3, k, j, i);
+                    if (use_emhd) {
+                        p_bound_right_host(m_p.Q, k, j, ii) = q_host(k, j, i);
+                        p_bound_right_host(m_p.DP, k, j, ii) = dP_host(k, j, i);
+                    }
+                }
             }
         }
     }
 
     // disassociate file pointer
+    fclose(fp_r);
     fclose(fp_rho);
     fclose(fp_u);
     if (use_emhd)
@@ -298,6 +304,7 @@ TaskStatus InitializeAtmosphere(std::shared_ptr<MeshBlockData<Real>>& rc, Parame
     p_bound_right.DeepCopy(p_bound_right_host);
     Kokkos::fence();
 
+    Flag("Initialized");
     return TaskStatus::complete;
 
 }

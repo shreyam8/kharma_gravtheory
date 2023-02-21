@@ -99,13 +99,13 @@ TaskCollection KHARMADriver::MakeSimpleTaskCollection(BlockList_t &blocks, int s
 
         // Perform the update using the source term
         // Add any proportion of the step start required by the integrator (e.g., RK2)
-        auto t_avg_data = tl.AddTask(t_sources, Update::WeightedSumData<MetadataFlag, MeshData<Real>>,
+        auto t_avg_data = tl.AddTask(t_sources, Update::WeightedSumData<std::vector<MetadataFlag>, MeshData<Real>>,
                                     std::vector<MetadataFlag>({Metadata::Independent}),
                                     md_sub_step_init.get(), md_full_step_init.get(),
                                     integrator->gam0[stage-1], integrator->gam1[stage-1],
                                     md_sub_step_final.get());
         // apply du/dt to the result
-        auto t_update = tl.AddTask(t_sources, Update::WeightedSumData<MetadataFlag, MeshData<Real>>,
+        auto t_update = tl.AddTask(t_sources, Update::WeightedSumData<std::vector<MetadataFlag>, MeshData<Real>>,
                                     std::vector<MetadataFlag>({Metadata::Independent}),
                                     md_sub_step_final.get(), md_flux_src.get(),
                                     1.0, integrator->beta[stage-1] * integrator->dt,
@@ -114,9 +114,7 @@ TaskCollection KHARMADriver::MakeSimpleTaskCollection(BlockList_t &blocks, int s
         // UtoP needs a guess in order to converge, so we copy in md_sub_step_init
         auto t_copy_prims = t_update;
         if (integrator->nstages > 1) {
-            MetadataFlag isPrimitive = pkgs.at("GRMHD")->Param<MetadataFlag>("PrimitiveFlag");
-            MetadataFlag isHD = pkgs.at("GRMHD")->Param<MetadataFlag>("HDFlag");
-            t_copy_prims = tl.AddTask(t_none, Copy, std::vector<MetadataFlag>({isHD, isPrimitive}),
+            t_copy_prims = tl.AddTask(t_none, Copy, std::vector<MetadataFlag>({Metadata::GetUserFlag("HD"), Metadata::GetUserFlag("Primitive")}),
                                                 md_sub_step_init.get(), md_sub_step_final.get());
         }
 

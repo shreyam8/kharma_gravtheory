@@ -157,15 +157,78 @@ std::shared_ptr<KHARMAPackage> Floors::Initialize(ParameterInput *pin, std::shar
     return pkg;
 }
 
+TaskStatus Floors::ApplyInitialFloors(MeshBlockData<Real> *mbd, IndexDomain domain)
+{
+    Flag(mbd, "Applying first floors");
+
+    auto pmb                 = mbd->GetBlockPointer();
+
+    PackIndexMap prims_map, cons_map;
+    auto P = mbd->PackVariables({Metadata::GetUserFlag("Primitive")}, prims_map);
+    auto U = mbd->PackVariables(std::vector<MetadataFlag>{Metadata::Conserved}, cons_map);
+    const VarMap m_u(cons_map, true), m_p(prims_map, false);
+
+    const auto& G = pmb->coords;
+
+    const Real gam = pmb->packages.Get("GRMHD")->Param<Real>("gamma");
+
+
+    // If we're going to apply floors through the run, apply the same ones at init
+    // Otherwise pick sensible defaults
+    Floors::Prescription floors_tmp;
+    if (pmb->packages.AllPackages().count("Floors")) {
+        floors_tmp = Floors::Prescription(pmb->packages.Get("Floors")->AllParams());
+    } else {
+            // JUST rho & u geometric
+            floors_tmp.rho_min_geom = 1e-6;
+            floors_tmp.u_min_geom   = 1e-8;
+            floors_tmp.r_char       = 10.; //unused
+            floors_tmp.frame_switch = 50.; //unused
+
+            floors_tmp.bsq_over_rho_max = 1e20;
+            floors_tmp.bsq_over_u_max   = 1e20;
+            floors_tmp.u_over_rho_max   = 1e20;
+            floors_tmp.ktot_max         = 1e20;
+            floors_tmp.gamma_max        = 1e20;
+
+            floors_tmp.use_r_char    = false;
+            floors_tmp.temp_adjust_u = false;
+            floors_tmp.adjust_k      = false;
+
+            floors_tmp.fluid_frame   = true;
+            floors_tmp.mixed_frame   = false;
+            floors_tmp.drift_frame   = false;
+    }
+    const Floors::Prescription floors = floors_tmp;
+
+    const EMHD::EMHD_parameters& emhd_params = EMHD::GetEMHDParameters(pmb->packages);
+
+    // Apply floors over the same zones we just updated with UtoP
+    // This selects the entire domain, but we then require pflag >= 0,
+    // which keeps us from covering completely uninitialized zones
+    // (but still applies to failed UtoP!)
+    const IndexRange ib = mbd->GetBoundsI(domain);
+    const IndexRange jb = mbd->GetBoundsJ(domain);
+    const IndexRange kb = mbd->GetBoundsK(domain);
+    pmb->par_for("apply_floors", kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+        KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
+            apply_floors(G, P, m_p, gam, emhd_params, k, j, i, floors, U, m_u);
+            apply_ceilings(G, P, m_p, gam, k, j, i, floors, U, m_u);
+        }
+    );
+
+    Flag(mbd, "Applied");
+    return TaskStatus::complete;
+}
+
 TaskStatus Floors::ApplyGRMHDFloors(MeshBlockData<Real> *mbd, IndexDomain domain)
 {
     Flag(mbd, "Applying GRMHD floors");
 
     auto pmb                 = mbd->GetBlockPointer();
-    MetadataFlag isPrimitive = pmb->packages.Get("GRMHD")->AllParams().Get<MetadataFlag>("PrimitiveFlag");
 
     PackIndexMap prims_map, cons_map;
-    auto P = mbd->PackVariables({isPrimitive}, prims_map);
+    auto P = mbd->PackVariables({Metadata::GetUserFlag("Primitive")}, prims_map);
     auto U = mbd->PackVariables(std::vector<MetadataFlag>{Metadata::Conserved}, cons_map);
     const VarMap m_u(cons_map, true), m_p(prims_map, false);
 

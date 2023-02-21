@@ -8,12 +8,13 @@ BASE=../..
 exit_code=0
 
 conv_3d() {
-    ALL_RES="16,24,32,48,64,96,128"
-    for res in 16 24 32 48 64 96 128
+    ALL_RES="8,16,24,32,48,64"
+    for res in 8 16 24 32 48 64
     do
       # Eight blocks
       half=$(( $res / 2 ))
       $BASE/run.sh -i $BASE/pars/mhdmodes.par debug/verbose=2 \
+                      parthenon/output0/single_precision_output=false parthenon/output0/dt=100. \
                       parthenon/mesh/nx1=$res parthenon/mesh/nx2=$res parthenon/mesh/nx3=$res \
                       parthenon/meshblock/nx1=$half parthenon/meshblock/nx2=$half parthenon/meshblock/nx3=$half \
                       $2 >log_3d_${1}_${res}.txt 2>&1
@@ -36,6 +37,7 @@ conv_2d() {
       # Four blocks
       half=$(( $res / 2 ))
       $BASE/run.sh -i $BASE/pars/mhdmodes.par debug/verbose=1 mhdmodes/dir=3 \
+                      parthenon/output0/single_precision_output=false parthenon/output0/dt=100. \
                       parthenon/mesh/nx1=$res parthenon/mesh/nx2=$res parthenon/mesh/nx3=1 \
                       parthenon/meshblock/nx1=$half parthenon/meshblock/nx2=$half parthenon/meshblock/nx3=1 \
                       $2 >log_2d_${1}_${res}.txt 2>&1

@@ -65,6 +65,12 @@ typedef struct {
     Real bcov[GR_DIM];
 } FourVectors;
 
+typedef struct {
+    IndexRange ib;
+    IndexRange jb;
+    IndexRange kb;
+} IndexRange3;
+
 /**
  * Map of the locations of particular variables in a VariablePack
  * Used for operations conducted over all vars which must still
@@ -165,10 +171,87 @@ KOKKOS_INLINE_FUNCTION bool inside(const int& k, const int& j, const int& i,
 /**
  * Function for checking boundary flags: is this a domain or internal bound?
  */
-inline bool IsDomainBound(MeshBlock *pmb, BoundaryFace face)
+inline bool IsDomainBound(std::shared_ptr<MeshBlock> pmb, BoundaryFace face)
 {
     return !(pmb->boundary_flag[face] == BoundaryFlag::block ||
              pmb->boundary_flag[face] == BoundaryFlag::periodic);
+}
+
+inline bool BoundaryIsInner(IndexDomain domain)
+{
+    return domain == IndexDomain::inner_x1 ||
+           domain == IndexDomain::inner_x2 ||
+           domain == IndexDomain::inner_x3;
+}
+
+inline int BoundarySide(IndexDomain domain)
+{
+    switch (domain) {
+        case IndexDomain::inner_x1:
+        case IndexDomain::outer_x1:
+            return 1;
+        case IndexDomain::inner_x2:
+        case IndexDomain::outer_x2:
+            return 2;
+        case IndexDomain::inner_x3:
+        case IndexDomain::outer_x3:
+            return 3;
+        default:
+            return 0;
+    }
+}
+
+inline std::string BoundaryName(IndexDomain domain)
+{
+    switch (domain) {
+        case IndexDomain::inner_x1:
+            return "inner_x1";
+        case IndexDomain::outer_x1:
+            return "outer_x1";
+        case IndexDomain::inner_x2:
+            return "inner_x2";
+        case IndexDomain::outer_x2:
+            return "outer_x2";
+        case IndexDomain::inner_x3:
+            return "inner_x3";
+        case IndexDomain::outer_x3:
+            return "outer_x3";
+        case IndexDomain::interior:
+            return "interior";
+        case IndexDomain::entire:
+            return "entire";
+        default:
+            return "unknown";
+    }
+}
+
+/**
+ * Get zones in the domain interior
+ */
+
+/**
+ * Get the 
+ */
+inline IndexRange3 GetPhysicalZones(std::shared_ptr<MeshBlock> pmb, IndexShape& bounds)
+{
+    return IndexRange3{IndexRange{IsDomainBound(pmb, BoundaryFace::inner_x1)
+                                    ? bounds.is(IndexDomain::interior)
+                                    : bounds.is(IndexDomain::entire),
+                                  IsDomainBound(pmb, BoundaryFace::outer_x1)
+                                    ? bounds.ie(IndexDomain::interior)
+                                    : bounds.ie(IndexDomain::entire)},
+                       IndexRange{IsDomainBound(pmb, BoundaryFace::inner_x2)
+                                    ? bounds.js(IndexDomain::interior)
+                                    : bounds.js(IndexDomain::entire),
+                                  IsDomainBound(pmb, BoundaryFace::outer_x2)
+                                    ? bounds.je(IndexDomain::interior)
+                                    : bounds.je(IndexDomain::entire)},
+                       IndexRange{IsDomainBound(pmb, BoundaryFace::inner_x3)
+                                    ? bounds.ks(IndexDomain::interior)
+                                    : bounds.ks(IndexDomain::entire),
+                                  IsDomainBound(pmb, BoundaryFace::outer_x3)
+                                    ? bounds.ke(IndexDomain::interior)
+                                    : bounds.ke(IndexDomain::entire)}};
 }
 
 /**

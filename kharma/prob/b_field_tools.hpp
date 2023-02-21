@@ -38,7 +38,7 @@
 
 // Internal representation of the field initialization preference for quick switch
 // Avoids string comparsion in kernels
-enum BSeedType{constant, monopole, sane, ryan, ryan_quadrupole, r3s3, steep, gaussian, bz_monopole, vertical};
+enum BSeedType{constant, monopole, monopole_cube, sane, ryan, ryan_quadrupole, r3s3, steep, gaussian, bz_monopole, vertical};
 
 /**
  * Function to parse a string indicating desired field to a BSeedType
@@ -49,6 +49,8 @@ inline BSeedType ParseBSeedType(std::string b_field_type)
         return BSeedType::constant;
     } else if (b_field_type == "monopole") {
         return BSeedType::monopole;
+    } else if (b_field_type == "monopole_cube") {
+        return BSeedType::monopole_cube;
     } else if (b_field_type == "sane") {
         return BSeedType::sane;
     } else if (b_field_type == "mad" || b_field_type == "ryan") {
@@ -68,30 +70,4 @@ inline BSeedType ParseBSeedType(std::string b_field_type)
     } else {
         throw std::invalid_argument("Magnetic field seed type not supported: " + b_field_type);
     }
-}
-
-/**
- * Normalize the magnetic field by multiplying by 'norm'
- * 
- * LOCKSTEP: this function only respects P!
- */
-inline TaskStatus NormalizeBField(MeshBlockData<Real> *rc, Real norm)
-{
-    auto pmb = rc->GetBlockPointer();
-    IndexDomain domain = IndexDomain::interior;
-    int is = pmb->cellbounds.is(domain), ie = pmb->cellbounds.ie(domain);
-    int js = pmb->cellbounds.js(domain), je = pmb->cellbounds.je(domain);
-    int ks = pmb->cellbounds.ks(domain), ke = pmb->cellbounds.ke(domain);
-    GridVector B_P = rc->Get("prims.B").data;
-    const auto& G = pmb->coords;
-
-    const Real gam = pmb->packages.Get("GRMHD")->Param<Real>("gamma");
-
-    pmb->par_for("B_field_normalize", ks, ke, js, je, is, ie,
-        KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
-            VLOOP B_P(v, k, j, i) *= norm;
-        }
-    );
-
-    return TaskStatus::complete;
 }

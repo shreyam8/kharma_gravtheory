@@ -121,7 +121,7 @@ KOKKOS_INLINE_FUNCTION int apply_floors(const GRCoordinates& G, const VariablePa
         G.coord_embed(k, j, i, loc, Xembed);
         GReal r = Xembed[1];
         // TODO measure whether this/if 1 is really faster
-        // GReal r = exp(G.x1v(i));
+        // GReal r = m::exp(G.x1v(i));
 
         // Use the fluid frame if specified, or in outer domain
         use_ff = floors.fluid_frame || (floors.mixed_frame && r > floors.frame_switch);

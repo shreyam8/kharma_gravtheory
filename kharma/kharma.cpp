@@ -73,6 +73,7 @@ std::shared_ptr<KHARMAPackage> KHARMA::InitializeGlobals(ParameterInput *pin, st
 
     // Log levels, the other acceptable global
     // Made mutable in case we want to bump global log level on certain events
+    // TODO allow a "go_verbose" file watch
     int verbose = pin->GetOrAddInteger("debug", "verbose", 0);
     params.Add("verbose", verbose, true);
     int flag_verbose = pin->GetOrAddInteger("debug", "flag_verbose", 0);
@@ -175,7 +176,7 @@ void KHARMA::FixParameters(std::unique_ptr<ParameterInput>& pin)
     // Other systems must specify x1min/max directly in the mesh region
     if (!pin->DoesParameterExist("parthenon/mesh", "x1min") ||
         !pin->DoesParameterExist("parthenon/mesh", "x1max")) {
-        // TODO ask our coordinates about this rather than assuming exp()
+        // TODO ask our coordinates about this rather than assuming m::exp()
         bool log_r = (coordinate_transform != "null");
 
         // Outer radius is always specified
@@ -286,9 +287,6 @@ Packages_t KHARMA::ProcessPackages(std::unique_ptr<ParameterInput> &pin)
     if (!pin->GetOrAddBoolean("floors", "disable_floors", false)) {
         auto t_floors = tl.AddTask(t_none, KHARMA::AddPackage, packages, Floors::Initialize, pin.get());
     }
-    // Boundaries package, same idea.  (Boundaries stuff is overridden later if it's customized)
-    // TODO only if at least one boundary is "user"
-    auto t_boundaries = tl.AddTask(t_globals, KHARMA::AddPackage, packages, KBoundaries::Initialize, pin.get());
     // GRMHD needs globals to mark packages
     auto t_grmhd = tl.AddTask(t_globals | t_driver, KHARMA::AddPackage, packages, GRMHD::Initialize, pin.get());
     // Inverter (TODO: split out fixups, then don't load this when GRMHD isn't loaded)
@@ -343,7 +341,12 @@ Packages_t KHARMA::ProcessPackages(std::unique_ptr<ParameterInput> &pin)
 
     // Execute the whole collection (just in case we do something fancy?)
     Flag("Running package loading tasks");
-    while (tc.Execute() != TaskListStatus::complete); // TODO this will inf-loop on error
+    while (!tr.Execute()); // TODO this will inf-loop on error
+
+    // The boundaries package may need to know variable counts for allocating memory,
+    // so we initialize it after the main dependency tree
+    // TODO only init if at least one boundary is "user"
+    KHARMA::AddPackage(packages, KBoundaries::Initialize, pin.get());
 
     // Load the implicit package *last*, if there are any variables which need implicit evolution
     // TODO print what we're doing here & do some sanity checks, if verbose
@@ -353,6 +356,8 @@ Packages_t KHARMA::ProcessPackages(std::unique_ptr<ParameterInput> &pin)
         // Implicit evolution must use predictor-corrector i.e. "vl2" integrator
         pin->SetString("parthenon/time", "integrator", "vl2");
     }
+
+    
 
     Flag("Finished initializing all packages"); // TODO print full package list way up here?
     return std::move(*packages);

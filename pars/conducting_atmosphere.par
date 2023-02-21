@@ -30,6 +30,7 @@ r_in      = 200.
 r_out     = 300.
 
 <bounds>
+use_dirichlet = true
 check_inflow_inner = false
 check_inflow_outer = false
 

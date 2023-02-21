@@ -109,7 +109,7 @@ KOKKOS_INLINE_FUNCTION Real fm_torus_rho(const GReal a, const GReal rin, const G
     Real lnh = lnh_calc(a, l, rin, r, th);
     if (lnh >= 0. && r >= rin) {
         // Calculate rho
-        Real hm1 = exp(lnh) - 1.;
+        Real hm1 = m::exp(lnh) - 1.;
         return m::pow(hm1 * (gam - 1.) / (kappa * gam),
                             1. / (gam - 1.));
     } else {

@@ -132,6 +132,18 @@ TaskStatus B_FluxCT::SeedBField(MeshBlockData<Real> *rc, ParameterInput *pin)
             }
         );
         return TaskStatus::complete;
+    } else if (b_field_flag == BSeedType::monopole_cube) {
+        pmb->par_for("B_field_B", ks, ke, js, je, is, ie,
+            KOKKOS_LAMBDA (const int &k, const int &j, const int &i) {
+                // This ignores rin_bondi to keep divB consistent
+                // B \prop r^-3
+                GReal Xembed[GR_DIM];
+                G.coord_embed(k, j, i, Loci::center, Xembed);
+                B_P(V1, k, j, i) = 1/(Xembed[1]*Xembed[1]*Xembed[1]);
+                B_P(V2, k, j, i) = 0.;
+                B_P(V3, k, j, i) = 0.;
+            }
+        );
     }
 
     // Find the magnetic vector potential.  In X3 symmetry only A_phi is non-zero,

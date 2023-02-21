@@ -49,14 +49,12 @@ TaskStatus Flux::BlockPtoUMHD(MeshBlockData<Real> *rc, IndexDomain domain, bool 
     // Options
     const auto& pars = pmb->packages.Get("GRMHD")->AllParams();
     const Real gam = pars.Get<Real>("gamma");
-    const MetadataFlag isPrimitive = pars.Get<MetadataFlag>("PrimitiveFlag");
-    const MetadataFlag isMHD = pars.Get<MetadataFlag>("MHDFlag");
 
     const EMHD::EMHD_parameters& emhd_params = EMHD::GetEMHDParameters(pmb->packages);
 
     // Pack variables
     PackIndexMap prims_map, cons_map;
-    const auto& P = rc->PackVariables({isPrimitive}, prims_map);
+    const auto& P = rc->PackVariables({Metadata::GetUserFlag("Primitive")}, prims_map);
     const auto& U = rc->PackVariables({Metadata::Conserved}, cons_map);
     const VarMap m_u(cons_map, true), m_p(prims_map, false);
     const int nvar = U.GetDim(4);
@@ -87,14 +85,12 @@ TaskStatus Flux::BlockPtoU(MeshBlockData<Real> *rc, IndexDomain domain, bool coa
     // Options
     const auto& pars = pmb->packages.Get("GRMHD")->AllParams();
     const Real gam = pars.Get<Real>("gamma");
-    const MetadataFlag isPrimitive = pars.Get<MetadataFlag>("PrimitiveFlag");
-    const MetadataFlag isMHD = pars.Get<MetadataFlag>("MHDFlag");
 
     const EMHD::EMHD_parameters& emhd_params = EMHD::GetEMHDParameters(pmb->packages);
 
     // Pack variables
     PackIndexMap prims_map, cons_map;
-    const auto& P = rc->PackVariables({isPrimitive}, prims_map);
+    const auto& P = rc->PackVariables({Metadata::GetUserFlag("Primitive")}, prims_map);
     const auto& U = rc->PackVariables({Metadata::Conserved}, cons_map);
     const VarMap m_u(cons_map, true), m_p(prims_map, false);
     const int nvar = U.GetDim(4);
@@ -134,7 +130,6 @@ void Flux::AddGeoSource(MeshData<Real> *md, MeshData<Real> *mdudt)
     // Options
     const auto& pars = pkgs.Get("GRMHD")->AllParams();
     const Real gam   = pars.Get<Real>("gamma");
-    MetadataFlag isPrimitive = pars.Get<MetadataFlag>("PrimitiveFlag");
 
     // All connection coefficients are zero in Cartesian Minkowski space
     // TODO do we know this fully in init?
@@ -142,7 +137,7 @@ void Flux::AddGeoSource(MeshData<Real> *md, MeshData<Real> *mdudt)
 
     // Pack variables
     PackIndexMap prims_map, cons_map;
-    auto P    = md->PackVariables(std::vector<MetadataFlag>{isPrimitive}, prims_map);
+    auto P    = md->PackVariables(std::vector<MetadataFlag>{Metadata::GetUserFlag("Primitive")}, prims_map);
     auto dUdt = mdudt->PackVariables(std::vector<MetadataFlag>{Metadata::Conserved}, cons_map);
     const VarMap m_p(prims_map, false), m_u(cons_map, true);
 

@@ -54,41 +54,45 @@ std::shared_ptr<KHARMAPackage> KBoundaries::Initialize(ParameterInput *pin, std:
     // Prevent inflow at boundaries.
     // This is two separate checks, but default to enabling/disabling together
     bool spherical = pin->GetBoolean("coordinates", "spherical");
-    bool check_inflow_inner = pin->GetOrAddBoolean("bounds", "check_inflow_inner", spherical);
+    bool check_inflow = pin->GetOrAddBoolean("boundaries", "check_inflow", spherical);
+    bool check_inflow_inner = pin->GetOrAddBoolean("boundaries", "check_inflow_inner", check_inflow);
     params.Add("check_inflow_inner", check_inflow_inner);
-    bool check_inflow_flux_inner = pin->GetOrAddBoolean("bounds", "check_inflow_flux_inner", check_inflow_inner);
+    bool check_inflow_flux_inner = pin->GetOrAddBoolean("boundaries", "check_inflow_flux_inner", check_inflow_inner);
     params.Add("check_inflow_flux_inner", check_inflow_flux_inner);
-    bool check_inflow_outer = pin->GetOrAddBoolean("bounds", "check_inflow_outer", spherical);
+    bool check_inflow_outer = pin->GetOrAddBoolean("boundaries", "check_inflow_outer", check_inflow);
     params.Add("check_inflow_outer", check_inflow_outer);
-    bool check_inflow_flux_outer = pin->GetOrAddBoolean("bounds", "check_inflow_flux_outer", check_inflow_outer);
+    bool check_inflow_flux_outer = pin->GetOrAddBoolean("boundaries", "check_inflow_flux_outer", check_inflow_outer);
     params.Add("check_inflow_flux_outer", check_inflow_flux_outer);
+
     // Ensure fluxes through the zero-size face at the pole are zero
-    bool fix_flux_pole = pin->GetOrAddBoolean("bounds", "fix_flux_pole", spherical);
+    bool fix_flux_pole = pin->GetOrAddBoolean("boundaries", "fix_flux_pole", spherical);
     params.Add("fix_flux_pole", fix_flux_pole);
 
     // Fix the X1/X2 corner by replacing the reflecting condition with the inflow
-    bool fix_corner = pin->GetOrAddBoolean("bounds", "fix_corner", spherical);
+    bool fix_corner = pin->GetOrAddBoolean("boundaries", "fix_corner", spherical);
     params.Add("fix_corner", fix_corner);
 
     // Allocate space for Dirichlet boundaries if they'll be used
     // We have to trust the user here since the problem will set the function pointers later
-    // TODO specify which bounds individually for cleanliness?
-    bool use_dirichlet = pin->GetOrAddBoolean("bounds", "any_dirichlet", false);
+    // TODO specify which boundaries individually for cleanliness?
+    bool use_dirichlet = pin->GetOrAddBoolean("boundaries", "use_dirichlet", false);
     if (use_dirichlet) {
         auto& driver = packages->Get("Driver")->AllParams();
         int nvar = driver.Get<int>("n_explicit_vars") + driver.Get<int>("n_implicit_vars");
+        std::cout << "Allocating Dirichlet boundaries for " << nvar << " variables." << std::endl;
         // TODO We also don't know the mesh size, since it's not constructed. Infer.
         int ng = pin->GetInteger("parthenon/mesh", "nghost");
         int nx1 = pin->GetInteger("parthenon/meshblock", "nx1");
         int n1 = nx1 + 2*ng;
         int nx2 = pin->GetInteger("parthenon/meshblock", "nx2");
-        int n2 = nx2 == 1 ? nx2 : nx2 + 2*ng;
+        int n2 = (nx2 == 1) ? nx2 : nx2 + 2*ng;
         int nx3 = pin->GetInteger("parthenon/meshblock", "nx3");
-        int n3 = nx3 == 1 ? nx3 : nx3 + 2*ng;
+        int n3 = (nx3 == 1) ? nx3 : nx3 + 2*ng;
 
-        std::vector<int> s_x1({nvar, n3, n2, ng});
-        std::vector<int> s_x2({nvar, n3, ng, n1});
-        std::vector<int> s_x3({nvar, ng, n2, n1});
+        // These are declared *backward* from how they will be indexed
+        std::vector<int> s_x1({ng, n2, n3, nvar});
+        std::vector<int> s_x2({n1, ng, n3, nvar});
+        std::vector<int> s_x3({n1, n2, ng, nvar});
         Metadata m_x1 = Metadata({Metadata::Real, Metadata::Derived, Metadata::OneCopy}, s_x1);
         Metadata m_x2 = Metadata({Metadata::Real, Metadata::Derived, Metadata::OneCopy}, s_x2);
         Metadata m_x3 = Metadata({Metadata::Real, Metadata::Derived, Metadata::OneCopy}, s_x3);
@@ -141,21 +145,10 @@ void KBoundaries::ApplyBoundary(std::shared_ptr<MeshBlockData<Real>> &rc, IndexD
         }
     }
 
-    // If we synchronized the conserved variables of most packages,
-    // we need to recover the primitive variables.
-    bool prim_ghosts = pmb->packages.Get("Driver")->Param<bool>("sync_prims");
-    if (!prim_ghosts) {
-        Packages::BlockUtoPExceptMHD(rc.get(), domain, coarse);
-        Flux::BlockPtoUMHD(rc.get(), domain, coarse);
-    } else {
-        // Parthenon's boundary functions aren't GR-aware.
-        // So when they reflect the "primitive" B field, we have to correct them.
-        CorrectBField(rc, domain, coarse);
-        // Recalculate U.
-        // Usually we apply this over the whole domain afterward,
-        // but I keep it here for two_sync
-        Flux::BlockPtoU(rc.get(), domain, coarse);
-    }
+    // Respect the fluid primitives on boundaries (*not* B)
+    Flux::BlockPtoUMHD(rc.get(), domain, coarse);
+    // For everything else, respect conserved variables
+    Packages::BlockUtoPExceptMHD(rc.get(), domain, coarse);
 
     Flag("Applied boundary");
 }
@@ -213,6 +206,8 @@ void KBoundaries::CorrectBField(std::shared_ptr<MeshBlockData<Real>>& rc, IndexD
     const Real gam = pmb->packages.Get("GRMHD")->Param<Real>("gamma");
 
     auto B_P = rc->PackVariables(std::vector<std::string>{"prims.B"});
+    // Return if no field to correct
+    if (B_P.GetDim(4) == 0) return;
 
     const auto& G = pmb->coords;
 
@@ -276,9 +271,9 @@ void KBoundaries::Dirichlet(std::shared_ptr<MeshBlockData<Real>>& rc, IndexDomai
     // Subtract off the starting index if we're on the right
     const auto bounds = coarse ? pmb->c_cellbounds : pmb->cellbounds;
     const int dir = BoundarySide(domain);
-    const int ie = (dir == 1) ? bounds.ie(IndexDomain::interior) : 0;
-    const int je = (dir == 2) ? bounds.je(IndexDomain::interior) : 0;
-    const int ke = (dir == 3) ? bounds.ke(IndexDomain::interior) : 0;
+    const int ie = (dir == 1) ? bounds.ie(IndexDomain::interior)+1 : 0;
+    const int je = (dir == 2) ? bounds.je(IndexDomain::interior)+1 : 0;
+    const int ke = (dir == 3) ? bounds.ke(IndexDomain::interior)+1 : 0;
 
     const auto& G = pmb->coords;
 

@@ -75,13 +75,16 @@ std::shared_ptr<KHARMAPackage> Initialize(ParameterInput *pin, std::shared_ptr<P
     bool fix_polar_flux = pin->GetOrAddBoolean("b_field", "fix_polar_flux", spherical);
     params.Add("fix_polar_flux", fix_polar_flux);
     // These options do the same to the inner and outer edges.  They are NOT as well tested, and it's
-    // questionable whether you'd want to do this anyway, YMMV
+    // questionable whether you'd want to do this anyway.
+    // They would require at least B1 to be reflected across the EH, probably straight-up reflecting conditions
     bool fix_eh_flux = pin->GetOrAddBoolean("b_field", "fix_eh_flux", false);
     params.Add("fix_eh_flux", fix_eh_flux);
     bool fix_exterior_flux = pin->GetOrAddBoolean("b_field", "fix_exterior_flux", false);
     params.Add("fix_exterior_flux", fix_exterior_flux);
-    // WARNING this disables constrained transport, so the field will quickly pick up a divergence.
-    // To use another transport, just specify it instead of this one.
+
+    // KHARMA requires some kind of field transport if there is a magnetic field allocated
+    // Use this if you actually want to disable all magnetic field flux corrections,
+    // and allow a field divergence to grow unchecked, usually for debugging or comparison reasons
     bool disable_flux_ct = pin->GetOrAddBoolean("b_field", "disable_flux_ct", false);
     params.Add("disable_flux_ct", disable_flux_ct);
 
@@ -106,23 +109,15 @@ std::shared_ptr<KHARMAPackage> Initialize(ParameterInput *pin, std::shared_ptr<P
 
     std::vector<int> s_vector({NVEC});
 
-    MetadataFlag isPrimitive = packages->Get("GRMHD")->Param<MetadataFlag>("PrimitiveFlag");
-    MetadataFlag isMHD = packages->Get("GRMHD")->Param<MetadataFlag>("MHDFlag");
     // Mark if we're evolving implicitly
-    MetadataFlag areWeImplicit = (implicit_b) ? driver.Get<MetadataFlag>("ImplicitFlag")
-                                                : driver.Get<MetadataFlag>("ExplicitFlag");
+    MetadataFlag areWeImplicit = (implicit_b) ? Metadata::GetUserFlag("Implicit")
+                                                : Metadata::GetUserFlag("Explicit");
 
     // Flags for B fields.  "Primitive" form is field, "conserved" is flux
-    std::vector<MetadataFlag> flags_prim = {Metadata::Real, Metadata::Cell, Metadata::Derived, isPrimitive,
-                                            Metadata::Restart, isMHD, areWeImplicit, Metadata::Vector};
+    std::vector<MetadataFlag> flags_prim = {Metadata::Real, Metadata::Cell, Metadata::Derived, Metadata::GetUserFlag("Primitive"),
+                                            Metadata::Restart, Metadata::GetUserFlag("MHD"), areWeImplicit, Metadata::Vector};
     std::vector<MetadataFlag> flags_cons = {Metadata::Real, Metadata::Cell, Metadata::Independent, Metadata::Conserved,
-                                            Metadata::WithFluxes, isMHD, areWeImplicit, Metadata::Vector};
-
-    if (driver.Get<bool>("sync_prims")) {
-        flags_prim.push_back(Metadata::FillGhost);
-    } else {
-        flags_cons.push_back(Metadata::FillGhost);
-    }
+                                            Metadata::WithFluxes, Metadata::FillGhost, Metadata::GetUserFlag("MHD"), areWeImplicit, Metadata::Vector};
 
     auto m = Metadata(flags_prim, s_vector);
     pkg->AddField("prims.B", m);
@@ -324,21 +319,22 @@ void FixBoundaryFlux(MeshData<Real> *md, IndexDomain domain, bool coarse)
     const IndexRange jb = bounds.GetBoundsJ(IndexDomain::interior);
     const IndexRange kb = bounds.GetBoundsK(IndexDomain::interior);
 
+    // Imagine a corner of the domain, with ghost and physical zones
+    // as below, denoted w/'g' and 'p' respectively.
+    // 
+    // g | p | p
+    //-----------
+    // g | p | p
+    //xxx--------
+    // g | g | g
+    // 
+    // The flux through 'x' is not important for updating a physical zone,
+    // as it does not border any.  However, FluxCT considers it when updating
+    // nearby fluxes, two of which affect physical zones.
+    // Therefore in e.g. X1 faces, we need to update fluxes on the domain:
+    // [0,N1+1],[-1,N2+1],[-1,N3+1]
+    // These indices arrange for that.
 
-    /*
-     * g|p|p
-     * -----
-     * g|p|p
-     * x----
-     * g|g|g
-     * 
-     * Imagine a corner, physical and ghost zones as marked w/'g' and 'p'.
-     * The flux through 'x' is not important for updating a physical zone --
-     * however, FluxCT considers it when updating
-     * Therefore in e.g. X1 faces, we need to update on the domain:
-     * [0,N1+1],[-1,N2+1],[-1,N3+1]
-     * These indices arrange for that.
-     */
     // For faces
     const IndexRange ibf = IndexRange{ib.s, ib.e + 1};
     const IndexRange jbf = IndexRange{jb.s, jb.e + 1};
@@ -380,16 +376,20 @@ void FixBoundaryFlux(MeshData<Real> *md, IndexDomain domain, bool coarse)
             );
         }
 
+        // TODO the following is dead without an accompanying inverted-B1 or reflecting boundary
+        // for magnetic fields in KBoundaries. (Unless you want to reflect everything, which, don't.)
+        // Keeping special boundaries for this silly test kicking around KBoundaries was ugly, so they're
+        // removed.  Could investigate further when Parthenon's better boundary support appears.
+
         // We can do the same with the outflow bounds. Kind of.
         // See, actually, outflow bounds will *always* generate divergence on the domain face.
-        // So if we want to clean it up here, we order a special inversion of all B1 in ghost cells.
+        // So if we want to clean it up here, we would need to arrange for B1 to be inverted in ghost cells.
         // This is no longer pure outflow, but might be thought of as a "nicer" version of
         // reflecting conditions:
         // 1. Since B1 is inverted, B1 on the domain face will tend to 0 (it's not quite reflected, but basically)
         //    (obviously don't enable this for monopole test problems!)
         // 2. However, B2 and B3 are normal outflow conditions -- despite the fluxes here, the outflow
         //    conditions will set them equal to the last zone.
-        // TODO try real reflecting bounds, for B only
         if (domain == IndexDomain::inner_x1 &&
             pmb->boundary_flag[BoundaryFace::inner_x1] == BoundaryFlag::user) {
             pmb->par_for("fix_flux_b_in", kbs.s, kbs.e, jbs.s, jbs.e, ibf.s, ibf.s,

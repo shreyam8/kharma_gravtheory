@@ -69,6 +69,7 @@ inline T MPIReduce_once(T f, MPI_Op O)
     return reduction.val;
 }
 
+// Define reductions we need just for PostInitialize code.
 // TODO namespace...
 KOKKOS_INLINE_FUNCTION Real bsq(REDUCE_FUNCTION_ARGS_MESH)
 {
@@ -173,7 +174,7 @@ void KHARMA::SeedAndNormalizeB(ParameterInput *pin, std::shared_ptr<MeshData<Rea
                 Real norm = m::sqrt(beta_min/desired_beta_min);
                 for (auto &pmb : pmesh->block_list) {
                     auto& rc = pmb->meshblock_data.Get();
-                    NormalizeBField(rc.get(), norm);
+                    KHARMADriver::Scale(std::vector<std::string>{"prims.B"}, rc.get(), norm);
                 }
             }
         }
@@ -267,13 +268,10 @@ void KHARMA::PostInitialize(ParameterInput *pin, Mesh *pmesh, bool is_restart)
     }
 
     // Clean the B field if we've introduced a divergence somewhere
-    // Call this any time the package is loaded, the logic there
+    // Call this any time the package is loaded, all the
+    // logic about parsing whether to clean is there
     if (pkgs.count("B_Cleanup")) {
         B_Cleanup::CleanupDivergence(md);
-        // Remove any fields related to the B field cleanup --
-        // they're synchronized if we keep them around
-        // TODO this seems to error out on subsequent steps' container generation
-        // B_Cleanup::RemoveExtraFields(pmesh->block_list);
     }
 
     Flag("Post-initialization finished");

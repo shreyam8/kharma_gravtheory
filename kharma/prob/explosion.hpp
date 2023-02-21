@@ -102,8 +102,8 @@ TaskStatus InitializeExplosion(std::shared_ptr<MeshBlockData<Real>>& rc, Paramet
                     const Real lrho_in = log(rho_in);
                     const Real lu_out = log(u_out);
                     const Real lu_in = log(u_in);
-                    rho(k, j, i) = exp(lrho_out + ramp * (lrho_in - lrho_out));
-                    u(k, j, i) = exp(lu_out + ramp * (lu_in - lu_out));
+                    rho(k, j, i) = m::exp(lrho_out + ramp * (lrho_in - lrho_out));
+                    u(k, j, i) = m::exp(lu_out + ramp * (lu_in - lu_out));
                 }
             } else {
                 rho(k, j, i) = rho_out;

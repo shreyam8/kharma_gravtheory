@@ -179,8 +179,8 @@ void ReadIharmRestartHeader(std::string fname, std::unique_ptr<ParameterInput>& 
 
             // Going from domain->coords values is better to match everything
             if (file_in_spherical) {
-                pin->SetReal("coordinates", "r_in", exp(x1min));
-                pin->SetReal("coordinates", "r_out", exp(x1max));
+                pin->SetReal("coordinates", "r_in", m::exp(x1min));
+                pin->SetReal("coordinates", "r_out", m::exp(x1max));
             }
         } else {
             std::cout << "Guessing geometry when restarting! This is potentially very bad to do!" << std::endl;

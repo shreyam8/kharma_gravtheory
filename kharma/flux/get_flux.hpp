@@ -85,9 +85,6 @@ inline TaskStatus GetFlux(MeshData<Real> *md)
     }
     const Floors::Prescription& floors = floors_temp;
 
-    // Pull flag indicating primitive variables
-    const MetadataFlag isPrimitive = mhd_pars.Get<MetadataFlag>("PrimitiveFlag");
-
     const Real gam = mhd_pars.Get<Real>("gamma");
 
     // Check whether we're using constraint-damping
@@ -102,7 +99,7 @@ inline TaskStatus GetFlux(MeshData<Real> *md)
     // Pack variables.  Keep ctop separate
     PackIndexMap prims_map, cons_map;
     const auto& ctop  = md->PackVariables(std::vector<std::string>{"ctop"});
-    const auto& P_all = md->PackVariables(std::vector<MetadataFlag>{isPrimitive}, prims_map);
+    const auto& P_all = md->PackVariables(std::vector<MetadataFlag>{Metadata::GetUserFlag("Primitive")}, prims_map);
     const auto& U_all = md->PackVariablesAndFluxes(std::vector<MetadataFlag>{Metadata::Conserved}, cons_map);
     const VarMap m_u(cons_map, true), m_p(prims_map, false);
     //Flag(md, "Packed variables");

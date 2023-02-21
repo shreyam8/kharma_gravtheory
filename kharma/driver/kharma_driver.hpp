@@ -122,10 +122,23 @@ class KHARMADriver : public MultiStageDriver {
          */
         static void SyncAllBounds(std::shared_ptr<MeshData<Real>> md, bool apply_domain_bounds=true);
 
+        // TODO swapped versions of these
         /**
          * Copy variables matching 'flags' from 'source' to 'dest'.
          * Mostly makes things easier to read.
          */
-        static TaskStatus Copy(std::vector<MetadataFlag> flags, MeshData<Real>* source, MeshData<Real>* dest);
+        static TaskStatus Copy(std::vector<MetadataFlag> flags, MeshData<Real>* source, MeshData<Real>* dest)
+        {
+            return Update::WeightedSumData<std::vector<MetadataFlag>, MeshData<Real>>(flags, source, source, 1., 0., dest);
+        }
+
+        /**
+         * Scale a variable by 'norm'.
+         * Mostly makes things easier to read.
+         */
+        static TaskStatus Scale(std::vector<std::string> flags,  MeshBlockData<Real>* source, Real norm)
+        {
+            return Update::WeightedSumData<std::vector<std::string>, MeshBlockData<Real>>(flags, source, source, norm, 0., source);
+        }
 
 };

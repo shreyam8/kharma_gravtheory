@@ -160,30 +160,24 @@ TaskCollection KHARMADriver::MakeImExTaskCollection(BlockList_t &blocks, int sta
         // and partially "Explicit," by first doing any explicit updates, then using them as elements
         // of the "guess" for the implicit solve
 
-        // Indicators for Explicit/Implicit variables to evolve
-        MetadataFlag isExplicit = driver_pkg.Get<MetadataFlag>("ExplicitFlag");
-        MetadataFlag isImplicit = driver_pkg.Get<MetadataFlag>("ImplicitFlag");
-
         // Update the explicitly-evolved variables using the source term
         // Add any proportion of the step start required by the integrator (e.g., RK2)
-        auto t_avg_data = tl.AddTask(t_sources, Update::WeightedSumData<MetadataFlag, MeshData<Real>>,
-                                    std::vector<MetadataFlag>({isExplicit, Metadata::Independent}),
+        auto t_avg_data = tl.AddTask(t_sources, Update::WeightedSumData<std::vector<MetadataFlag>, MeshData<Real>>,
+                                    std::vector<MetadataFlag>({Metadata::GetUserFlag("Explicit"), Metadata::Independent}),
                                     md_sub_step_init.get(), md_full_step_init.get(),
                                     integrator->gam0[stage-1], integrator->gam1[stage-1],
                                     md_solver.get());
         // apply du/dt to the result
-        auto t_update = tl.AddTask(t_sources, Update::WeightedSumData<MetadataFlag, MeshData<Real>>,
-                                    std::vector<MetadataFlag>({isExplicit, Metadata::Independent}),
+        auto t_update = tl.AddTask(t_sources, Update::WeightedSumData<std::vector<MetadataFlag>, MeshData<Real>>,
+                                    std::vector<MetadataFlag>({Metadata::GetUserFlag("Explicit"), Metadata::Independent}),
                                     md_solver.get(), md_flux_src.get(),
                                     1.0, integrator->beta[stage-1] * integrator->dt,
                                     md_solver.get());
 
         // If evolving GRMHD explicitly, UtoP needs a guess in order to converge, so we copy in md_sub_step_init
         auto t_copy_prims = t_none;
-        MetadataFlag isPrimitive = pkgs.at("GRMHD")->Param<MetadataFlag>("PrimitiveFlag");
         if (!pkgs.at("GRMHD")->Param<bool>("implicit")) {
-            MetadataFlag isHD        = pkgs.at("GRMHD")->Param<MetadataFlag>("HDFlag");
-            t_copy_prims        = tl.AddTask(t_none, Copy, std::vector<MetadataFlag>({isHD, isPrimitive}),
+            t_copy_prims        = tl.AddTask(t_none, Copy, std::vector<MetadataFlag>({Metadata::GetUserFlag("HD"), Metadata::GetUserFlag("Primitive")}),
                                              md_sub_step_init.get(), md_solver.get());
         }
 
@@ -201,18 +195,17 @@ TaskCollection KHARMADriver::MakeImExTaskCollection(BlockList_t &blocks, int sta
 
             // Copy the current state of any implicitly-evolved vars (at least the prims) in as a guess.
             // This sets md_solver = md_sub_step_init
-            auto t_copy_guess = tl.AddTask(t_sources, Copy, std::vector<MetadataFlag>({isImplicit}),
+            auto t_copy_guess = tl.AddTask(t_sources, Copy, std::vector<MetadataFlag>({Metadata::GetUserFlag("Implicit")}),
                                         md_sub_step_init.get(), md_solver.get());
 
             auto t_guess_ready = t_explicit | t_copy_guess;
 
             // The `solver` MeshData object now has the implicit primitives corresponding to initial/half step and
             // explicit variables have been updated to match the current step.
-            // Copy the primitives (MetaData::Derived) to the `linesearch` MeshData object if linesearch was enabled.
-            // TODO use isPrimitive?
+            // Copy the primitives to the `linesearch` MeshData object if linesearch was enabled.
             auto t_copy_linesearch = t_guess_ready;
             if (use_linesearch) {
-                t_copy_linesearch = tl.AddTask(t_guess_ready, Copy, std::vector<MetadataFlag>({Metadata::Derived}),
+                t_copy_linesearch = tl.AddTask(t_guess_ready, Copy, std::vector<MetadataFlag>({Metadata::GetUserFlag("Primitive")}),
                                                 md_solver.get(), md_linesearch.get());
             }
 
@@ -223,9 +216,9 @@ TaskCollection KHARMADriver::MakeImExTaskCollection(BlockList_t &blocks, int sta
             auto t_implicit_step = tl.AddTask(t_copy_linesearch, Implicit::Step, md_full_step_init.get(), md_sub_step_init.get(), 
                                          md_flux_src.get(), md_linesearch.get(), md_solver.get(), integrator->beta[stage-1] * integrator->dt);
 
-            // Copy the entire solver state (no flags) into the final state md_sub_step_final
+            // Copy the entire solver state (everything defined on the grid, i.e. 'Cell') into the final state md_sub_step_final
             // If we're entirely explicit, we just declare these equal
-            t_implicit = tl.AddTask(t_implicit_step, Copy, std::vector<MetadataFlag>({}),
+            t_implicit = tl.AddTask(t_implicit_step, Copy, std::vector<MetadataFlag>({Metadata::Cell}),
                                     md_solver.get(), md_sub_step_final.get());
 
         }
@@ -261,7 +254,7 @@ TaskCollection KHARMADriver::MakeImExTaskCollection(BlockList_t &blocks, int sta
         if (stage == integrator->nstages) {
             t_prim_source = tl.AddTask(t_set_bc, Packages::BlockApplyPrimSource, mbd_sub_step_final.get());
         }
-        // Electron heating goes where it does in HARMDriver, for the same reasons
+        // Electron heating goes where it does in the KHARMA Driver, for the same reasons
         auto t_heat_electrons = t_prim_source;
         if (use_electrons) {
             t_heat_electrons = tl.AddTask(t_prim_source, Electrons::ApplyElectronHeating,

@@ -119,50 +119,6 @@ void FixCorner(std::shared_ptr<MeshBlockData<Real>> &rc, IndexDomain domain, boo
  */
 void CorrectBField(std::shared_ptr<MeshBlockData<Real>>& rc, IndexDomain domain, bool coarse);
 
-inline bool BoundaryIsInner(IndexDomain domain)
-{
-    return domain == IndexDomain::inner_x1 ||
-           domain == IndexDomain::inner_x2 ||
-           domain == IndexDomain::inner_x3;
-}
-
-inline int BoundarySide(IndexDomain domain)
-{
-    switch (domain) {
-        case IndexDomain::inner_x1:
-        case IndexDomain::outer_x1:
-            return 1;
-        case IndexDomain::inner_x2:
-        case IndexDomain::outer_x2:
-            return 2;
-        case IndexDomain::inner_x3:
-        case IndexDomain::outer_x3:
-            return 3;
-        default:
-            return 0;
-    }
-}
-
-inline std::string BoundaryName(IndexDomain domain)
-{
-    switch (domain) {
-        case IndexDomain::inner_x1:
-            return "inner_x1";
-        case IndexDomain::outer_x1:
-            return "outer_x1";
-        case IndexDomain::inner_x2:
-            return "inner_x2";
-        case IndexDomain::outer_x2:
-            return "outer_x2";
-        case IndexDomain::inner_x3:
-            return "inner_x3";
-        case IndexDomain::outer_x3:
-            return "outer_x3";
-        default:
-            return "non_boundary";
-    }
-}
-
 /**
  * Check for velocity toward the simulation domain in a zone, and eliminate it.
  */

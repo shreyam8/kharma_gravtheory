@@ -113,17 +113,15 @@ std::shared_ptr<KHARMAPackage> Initialize(ParameterInput *pin, std::shared_ptr<P
     int n_current = driver.Get<int>("n_implicit_vars");
     driver.Update("n_implicit_vars", n_current+2);
 
-    MetadataFlag isPrimitive = packages->Get("GRMHD")->Param<MetadataFlag>("PrimitiveFlag");
-    MetadataFlag isEMHD      = Metadata::AllocateNewFlag("EMHDFlag");
-    params.Add("EMHDFlag", isEMHD);
+    Metadata::AddUserFlag("EMHD");
 
     // General options for primitive and conserved scalar variables in ImEx driver
     // EMHD is supported only with imex driver and implicit evolution
     MetadataFlag isImplicit = packages->Get("Driver")->Param<MetadataFlag>("ImplicitFlag");
     Metadata m_con  = Metadata({Metadata::Real, Metadata::Cell, Metadata::Independent, isImplicit,
-                                Metadata::Conserved, Metadata::WithFluxes, isEMHD});
+                                Metadata::Conserved, Metadata::WithFluxes, Metadata::GetUserFlag("EMHD")});
     Metadata m_prim = Metadata({Metadata::Real, Metadata::Cell, Metadata::Derived, isImplicit,
-                                Metadata::FillGhost, Metadata::Restart, isPrimitive, isEMHD});
+                                Metadata::FillGhost, Metadata::Restart, Metadata::GetUserFlag("Primitive"), Metadata::GetUserFlag("EMHD")});
 
     // Heat conduction
     pkg->AddField("cons.q", m_con);
@@ -134,12 +132,11 @@ std::shared_ptr<KHARMAPackage> Initialize(ParameterInput *pin, std::shared_ptr<P
 
     // 4vel ucov and temperature Theta are needed as temporaries, but need to be grid-sized anyway.
     // Allow keeping/saving them.
-    MetadataFlag isTemporary = Metadata::AllocateNewFlag("EMHDTemporary");
-    params.Add("EMHDTemporaryFlag", isTemporary);
-    Metadata m_temp = Metadata({Metadata::Real, Metadata::Cell, Metadata::Derived, Metadata::OneCopy, isTemporary});
+    Metadata::AddUserFlag("EMHDTemporary");
+    Metadata m_temp = Metadata({Metadata::Real, Metadata::Cell, Metadata::Derived, Metadata::OneCopy, Metadata::GetUserFlag("EMHDTemporary")});
     pkg->AddField("Theta", m_temp);
     std::vector<int> fourv = {GR_DIM};
-    Metadata m_temp_vec = Metadata({Metadata::Real, Metadata::Cell, Metadata::Derived, Metadata::OneCopy, isTemporary}, fourv);
+    Metadata m_temp_vec = Metadata({Metadata::Real, Metadata::Cell, Metadata::Derived, Metadata::OneCopy, Metadata::GetUserFlag("EMHDTemporary")}, fourv);
     pkg->AddField("ucov", m_temp_vec);
 
     // This works similarly to the fflag --
@@ -171,22 +168,20 @@ TaskStatus AddSource(MeshData<Real> *md, MeshData<Real> *mdudt)
     const auto& gpars = pmb0->packages.Get("GRMHD")->AllParams();
     const Real gam    = gpars.Get<Real>("gamma");
     const int ndim    = pmesh->ndim;
-    const MetadataFlag isPrimitive = gpars.Get<MetadataFlag>("PrimitiveFlag");
     // Options: Local
     const auto& pars                   = pmb0->packages.Get("EMHD")->AllParams();
     const EMHD_parameters& emhd_params = pars.Get<EMHD_parameters>("emhd_params");
-    const MetadataFlag isTemporary = pars.Get<MetadataFlag>("EMHDTemporaryFlag");
 
     // Pack variables
     PackIndexMap prims_map, cons_map;
-    auto P    = md->PackVariables(std::vector<MetadataFlag>{isPrimitive}, prims_map);
+    auto P    = md->PackVariables(std::vector<MetadataFlag>{Metadata::GetUserFlag("Primitive")}, prims_map);
     auto U    = md->PackVariables(std::vector<MetadataFlag>{Metadata::Conserved}, cons_map);
     auto dUdt = mdudt->PackVariables(std::vector<MetadataFlag>{Metadata::Conserved});
     const VarMap m_p(prims_map, false), m_u(cons_map, true);
 
     // Get temporary ucov, Theta for gradients
     PackIndexMap temps_map;
-    auto Temps = md->PackVariables(std::vector<MetadataFlag>{isTemporary}, temps_map);
+    auto Temps = md->PackVariables(std::vector<MetadataFlag>{Metadata::GetUserFlag("EMHDTemp")}, temps_map);
     int m_ucov = temps_map["ucov"].first;
     int m_theta = temps_map["Theta"].first;
 

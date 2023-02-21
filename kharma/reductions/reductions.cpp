@@ -48,12 +48,11 @@ Real Reductions::EHReduction(MeshData<Real> *md, UserHistoryOperation op, std::f
         // If we're on the inner edge
         if (pmb->boundary_flag[parthenon::BoundaryFace::inner_x1] == BoundaryFlag::user) {
             const auto& pars = pmb->packages.Get("GRMHD")->AllParams();
-            const MetadataFlag isPrimitive = pars.Get<MetadataFlag>("PrimitiveFlag");
             const Real gam = pars.Get<Real>("gamma");
 
             auto& rc = pmb->meshblock_data.Get();
             PackIndexMap prims_map, cons_map;
-            const auto& P = rc->PackVariables(std::vector<MetadataFlag>{isPrimitive}, prims_map);
+            const auto& P = rc->PackVariables(std::vector<MetadataFlag>{Metadata::GetUserFlag("Primitive")}, prims_map);
             const auto& U = rc->PackVariablesAndFluxes(std::vector<MetadataFlag>{Metadata::Conserved}, cons_map);
             const VarMap m_u(cons_map, true), m_p(prims_map, false);
 
@@ -112,11 +111,10 @@ Real Reductions::DomainReduction(MeshData<Real> *md, UserHistoryOperation op, st
     // TODO TODO MESHDATA THIS
     Real result = 0.;
     const auto& pars = pmesh->packages.Get("GRMHD")->AllParams();
-    const MetadataFlag isPrimitive = pars.Get<MetadataFlag>("PrimitiveFlag");
     const Real gam = pars.Get<Real>("gamma");
 
     PackIndexMap prims_map, cons_map;
-    const auto& P = md->PackVariables(std::vector<MetadataFlag>{isPrimitive}, prims_map);
+    const auto& P = md->PackVariables(std::vector<MetadataFlag>{Metadata::GetUserFlag("Primitive")}, prims_map);
     const auto& U = md->PackVariablesAndFluxes(std::vector<MetadataFlag>{Metadata::Conserved}, cons_map);
     const VarMap m_u(cons_map, true), m_p(prims_map, false);
 

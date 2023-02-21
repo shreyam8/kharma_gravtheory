@@ -127,7 +127,6 @@ if [[ -z "$CXX_NATIVE" ]]; then
   elif which icpc >/dev/null 2>&1; then
     CXX_NATIVE=icpc
     C_NATIVE=icc
-
   # Prefer NVHPC over generic compilers
   elif which nvc++ >/dev/null 2>&1; then
     CXX_NATIVE=nvc++
@@ -219,6 +218,10 @@ fi
 # Avoid warning on nvcc pragmas Intel doesn't like
 if [[ $CXX == "icpc" ]]; then
   export CXXFLAGS="-Wno-unknown-pragmas $CXXFLAGS"
+fi
+# Avoid icpx's astonishing DEFAULT -ffast-math
+if [[ $CXX == "icpx" ]]; then
+  export CXXFLAGS="-fno-fast-math $CXXFLAGS"
 fi
 
 ### Build HDF5 ###

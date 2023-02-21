@@ -116,9 +116,6 @@ void KHARMA::ProblemGenerator(MeshBlock *pmb, ParameterInput *pin)
     } else if (prob == "conducting_atmosphere") {
         status = InitializeAtmosphere(rc, pin);
     } else if (prob == "bondi_viscous") {
-        // Alternate defaults for compatibility
-        pin->GetOrAddBoolean("bondi", "set_b", true);
-        pin->GetOrAddReal("bondi", "rin_bondi", 0.);
         status = InitializeBondi(rc, pin);
     // Everything
     } else if (prob == "torus") {

@@ -144,6 +144,16 @@ std::shared_ptr<KHARMAPackage> Initialize(ParameterInput *pin, std::shared_ptr<P
 TaskStatus ApplyGRMHDFloors(MeshBlockData<Real> *rc, IndexDomain domain);
 
 /**
+ * Apply the same floors as above, in the same way, except:
+ * 1. No ceilings
+ * 2. Don't record results to 'fflag' or 'pflag'
+ * Used for problems where some part of the domain is initialized to
+ * "whatever the floor value is."
+ * This function can be called even if the Floors package is not initialized.
+ */
+TaskStatus ApplyInitialFloors(MeshBlockData<Real> *rc, IndexDomain domain);
+
+/**
  * Print a summary of floors hit
  */
 TaskStatus PostStepDiagnostics(const SimTime& tm, MeshData<Real> *md);
