@@ -218,6 +218,17 @@ int Reductions::CountFlags(MeshData<Real> *md, std::string field_name, std::map<
         }
     , sum_reducer);
 
+    // TODO TODO REPLACE ABOVE WITH SOMETHING LIKE:
+    // array_sum::array_type<Real, 2> res;
+    // parthenon::par_reduce(parthenon::loop_pattern_mdrange_tag, "RadiationResidual1",
+    //                         DevExecSpace(), 0, mout->NumBlocks()-1,
+    //                         0, nang1, kb.s, kb.e, jb.s, jb.e, ib.s, ib.e,
+    // KOKKOS_LAMBDA(const int b, const int n, const int k, const int j, const int i,
+    //                 array_sum::array_type<Real, 2>& dsum) {
+    //     dsum.my_array[0] += fabs(iiter(b,n,k,j,i) - iout(b,n,k,j,i));
+    //     dsum.my_array[1] += iout(b,n,k,j,i);
+    // }, array_sum::GlobalSum<Real, Kokkos::HostSpace, 2>(res));
+
     // Need the total on all ranks to evaluate the if statement below
     static AllReduce<int> n_tot;
     n_tot.val = nflags;
