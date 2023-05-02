@@ -109,6 +109,15 @@ std::shared_ptr<KHARMAPackage> Initialize(ParameterInput *pin, std::shared_ptr<P
 
     std::vector<int> s_vector({NVEC});
 
+    int ng = pin->GetInteger("parthenon/mesh", "nghost");
+    int nx1 = pin->GetInteger("parthenon/meshblock", "nx1");
+    int n1 = nx1 + 2*ng;
+    int nx2 = pin->GetInteger("parthenon/meshblock", "nx2");
+    int n2 = (nx2 == 1) ? nx2 : nx2 + 2*ng;
+    int nx3 = pin->GetInteger("parthenon/meshblock", "nx3");
+    int n3 = (nx3 == 1) ? nx3 : nx3 + 2*ng;
+    std::vector<int> s_emf({n1, n2, n3, NVEC});
+
     // Mark if we're evolving implicitly
     MetadataFlag areWeImplicit = (implicit_b) ? Metadata::GetUserFlag("Implicit")
                                                 : Metadata::GetUserFlag("Explicit");
@@ -118,11 +127,14 @@ std::shared_ptr<KHARMAPackage> Initialize(ParameterInput *pin, std::shared_ptr<P
                                             Metadata::Restart, Metadata::GetUserFlag("MHD"), areWeImplicit, Metadata::Vector};
     std::vector<MetadataFlag> flags_cons = {Metadata::Real, Metadata::Cell, Metadata::Independent, Metadata::Conserved,
                                             Metadata::WithFluxes, Metadata::FillGhost, Metadata::GetUserFlag("MHD"), areWeImplicit, Metadata::Vector};
+    std::vector<MetadataFlag> flags_emf = {Metadata::Real, Metadata::Derived, Metadata::OneCopy};
 
     auto m = Metadata(flags_prim, s_vector);
     pkg->AddField("prims.B", m);
     m = Metadata(flags_cons, s_vector);
     pkg->AddField("cons.B", m);
+    m = Metadata(flags_emf, s_emf);
+    pkg->AddField("emf", m);
 
     // We exist basically to do this
     pkg->FixFlux = B_FluxCT::FixFlux;
@@ -238,6 +250,7 @@ void FluxCT(MeshData<Real> *md)
 
     // Pack variables
     const auto& B_F = md->PackVariablesAndFluxes(std::vector<std::string>{"cons.B"});
+    const auto& emf_pack = md->PackVariables(std::vector<std::string>{"emf"});
 
     // Get sizes
     const IndexRange ib = md->GetBoundsI(IndexDomain::interior);
@@ -251,24 +264,24 @@ void FluxCT(MeshData<Real> *md)
 
     // Declare temporaries
     // TODO make these a true Edge field when that's available
-    const int n1 = pmb0->cellbounds.ncellsi(IndexDomain::entire);
-    const int n2 = pmb0->cellbounds.ncellsj(IndexDomain::entire);
-    const int n3 = pmb0->cellbounds.ncellsk(IndexDomain::entire);
-    const int nb = md->NumBlocks();
-    GridScalar emf1("emf1", nb, n3, n2, n1);
-    GridScalar emf2("emf2", nb, n3, n2, n1);
-    GridScalar emf3("emf3", nb, n3, n2, n1);
+    //const int n1 = pmb0->cellbounds.ncellsi(IndexDomain::entire);
+    //const int n2 = pmb0->cellbounds.ncellsj(IndexDomain::entire);
+    //const int n3 = pmb0->cellbounds.ncellsk(IndexDomain::entire);
+    //const int nb = md->NumBlocks();
+    //GridScalar emf1("emf1", nb, n3, n2, n1);
+    //GridScalar emf2("emf2", nb, n3, n2, n1);
+    //GridScalar emf3("emf3", nb, n3, n2, n1);
 
     // Calculate emf around each face
     Flag(md, "Calc EMFs");
     pmb0->par_for("flux_ct_emf", block.s, block.e, kl.s, kl.e, jl.s, jl.e, il.s, il.e,
         KOKKOS_LAMBDA (const int& b, const int &k, const int &j, const int &i) {
-            emf3(b, k, j, i) =  0.25 * (B_F(b).flux(X1DIR, V2, k, j, i) + B_F(b).flux(X1DIR, V2, k, j-1, i) -
+            emf_pack(b, V3, k, j, i) =  0.25 * (B_F(b).flux(X1DIR, V2, k, j, i) + B_F(b).flux(X1DIR, V2, k, j-1, i) -
                                         B_F(b).flux(X2DIR, V1, k, j, i) - B_F(b).flux(X2DIR, V1, k, j, i-1));
             if (ndim > 2) {
-                emf2(b, k, j, i) = -0.25 * (B_F(b).flux(X1DIR, V3, k, j, i) + B_F(b).flux(X1DIR, V3, k-1, j, i) -
+                emf_pack(b, V2, k, j, i) = -0.25 * (B_F(b).flux(X1DIR, V3, k, j, i) + B_F(b).flux(X1DIR, V3, k-1, j, i) -
                                             B_F(b).flux(X3DIR, V1, k, j, i) - B_F(b).flux(X3DIR, V1, k, j, i-1));
-                emf1(b, k, j, i) =  0.25 * (B_F(b).flux(X2DIR, V3, k, j, i) + B_F(b).flux(X2DIR, V3, k-1, j, i) -
+                emf_pack(b, V1, k, j, i) =  0.25 * (B_F(b).flux(X2DIR, V3, k, j, i) + B_F(b).flux(X2DIR, V3, k-1, j, i) -
                                             B_F(b).flux(X3DIR, V2, k, j, i) - B_F(b).flux(X3DIR, V2, k, j-1, i));
             }
         }
@@ -282,22 +295,22 @@ void FluxCT(MeshData<Real> *md)
     pmb0->par_for("flux_ct_1", block.s, block.e, kb.s, kb.e, jb.s, jb.e, il.s, il.e,
         KOKKOS_LAMBDA (const int& b, const int &k, const int &j, const int &i) {
             B_F(b).flux(X1DIR, V1, k, j, i) =  0.0;
-            B_F(b).flux(X1DIR, V2, k, j, i) =  0.5 * (emf3(b, k, j, i) + emf3(b, k, j+1, i));
-            if (ndim > 2) B_F(b).flux(X1DIR, V3, k, j, i) = -0.5 * (emf2(b, k, j, i) + emf2(b, k+1, j, i));
+            B_F(b).flux(X1DIR, V2, k, j, i) =  0.5 * (emf_pack(b, V3, k, j, i) + emf_pack(b, V3, k, j+1, i));
+            if (ndim > 2) B_F(b).flux(X1DIR, V3, k, j, i) = -0.5 * (emf_pack(b, V2, k, j, i) + emf_pack(b, V2, k+1, j, i));
         }
     );
     pmb0->par_for("flux_ct_2", block.s, block.e, kb.s, kb.e, jl.s, jl.e, ib.s, ib.e,
         KOKKOS_LAMBDA (const int& b, const int &k, const int &j, const int &i) {
-            B_F(b).flux(X2DIR, V1, k, j, i) = -0.5 * (emf3(b, k, j, i) + emf3(b, k, j, i+1));
+            B_F(b).flux(X2DIR, V1, k, j, i) = -0.5 * (emf_pack(b, V3, k, j, i) + emf_pack(b, V3, k, j, i+1));
             B_F(b).flux(X2DIR, V2, k, j, i) =  0.0;
-            if (ndim > 2) B_F(b).flux(X2DIR, V3, k, j, i) =  0.5 * (emf1(b, k, j, i) + emf1(b, k+1, j, i));
+            if (ndim > 2) B_F(b).flux(X2DIR, V3, k, j, i) =  0.5 * (emf_pack(b, V1, k, j, i) + emf_pack(b, V1, k+1, j, i));
         }
     );
     if (ndim > 2) {
         pmb0->par_for("flux_ct_3", block.s, block.e, kl.s, kl.e, jb.s, jb.e, ib.s, ib.e,
             KOKKOS_LAMBDA (const int& b, const int &k, const int &j, const int &i) {
-                B_F(b).flux(X3DIR, V1, k, j, i) =  0.5 * (emf2(b, k, j, i) + emf2(b, k, j, i+1));
-                B_F(b).flux(X3DIR, V2, k, j, i) = -0.5 * (emf1(b, k, j, i) + emf1(b, k, j+1, i));
+                B_F(b).flux(X3DIR, V1, k, j, i) =  0.5 * (emf_pack(b, V2, k, j, i) + emf_pack(b, V2, k, j, i+1));
+                B_F(b).flux(X3DIR, V2, k, j, i) = -0.5 * (emf_pack(b, V1, k, j, i) + emf_pack(b, V1, k, j+1, i));
                 B_F(b).flux(X3DIR, V3, k, j, i) =  0.0;
             }
         );
