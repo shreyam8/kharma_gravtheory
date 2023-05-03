@@ -204,7 +204,7 @@ inline TaskStatus GetFlux(MeshData<Real> *md)
 
             // Wrapper for a big switch statement between reconstruction schemes. Possibly slow.
             // This function is generally a lot of if statements
-            KReconstruction::reconstruct<Recon, dir>(member, G, P_all(b), k, j, il.s, il.e, Pl_s, Pr_s);
+            KReconstruction::reconstruct<Recon, dir>(member, P_all(b), k, j, il.s, il.e, Pl_s, Pr_s);
 
             // Sync all threads in the team so that scratch memory is consistent
             member.team_barrier();

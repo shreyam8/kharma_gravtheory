@@ -141,11 +141,11 @@ TaskCollection ImexDriver::MakeTaskCollection(BlockList_t &blocks, int stage)
             t_calculate_flux2 = tl.AddTask(t_start_recv, Flux::GetFlux<ReconstructionType::linear_mc, X2DIR>, md_sub_step_init.get());
             t_calculate_flux3 = tl.AddTask(t_start_recv, Flux::GetFlux<ReconstructionType::linear_mc, X3DIR>, md_sub_step_init.get());
             break;
-        case ReconstructionType::linear_vl:
-            t_calculate_flux1 = tl.AddTask(t_start_recv, Flux::GetFlux<ReconstructionType::linear_vl, X1DIR>, md_sub_step_init.get());
-            t_calculate_flux2 = tl.AddTask(t_start_recv, Flux::GetFlux<ReconstructionType::linear_vl, X2DIR>, md_sub_step_init.get());
-            t_calculate_flux3 = tl.AddTask(t_start_recv, Flux::GetFlux<ReconstructionType::linear_vl, X3DIR>, md_sub_step_init.get());
-            break;
+        // case ReconstructionType::linear_vl:
+        //     t_calculate_flux1 = tl.AddTask(t_start_recv, Flux::GetFlux<ReconstructionType::linear_vl, X1DIR>, md_sub_step_init.get());
+        //     t_calculate_flux2 = tl.AddTask(t_start_recv, Flux::GetFlux<ReconstructionType::linear_vl, X2DIR>, md_sub_step_init.get());
+        //     t_calculate_flux3 = tl.AddTask(t_start_recv, Flux::GetFlux<ReconstructionType::linear_vl, X3DIR>, md_sub_step_init.get());
+        //     break;
         case ReconstructionType::weno5:
             t_calculate_flux1 = tl.AddTask(t_start_recv, Flux::GetFlux<ReconstructionType::weno5, X1DIR>, md_sub_step_init.get());
             t_calculate_flux2 = tl.AddTask(t_start_recv, Flux::GetFlux<ReconstructionType::weno5, X2DIR>, md_sub_step_init.get());

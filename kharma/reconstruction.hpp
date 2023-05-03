@@ -353,13 +353,13 @@ KOKKOS_INLINE_FUNCTION void WENO5X3r(parthenon::team_mbr_t const &member, const 
  * Better than a runtime decision per outer loop I think
  */
 template <ReconstructionType Recon, int dir>
-KOKKOS_INLINE_FUNCTION void reconstruct(parthenon::team_mbr_t& member, const GRCoordinates& G, const VariablePack<Real> &P,
+KOKKOS_INLINE_FUNCTION void reconstruct(parthenon::team_mbr_t& member, const VariablePack<Real> &P,
                                         const int& k, const int& j, const int& is_l, const int& ie_l, 
                                         ScratchPad2D<Real> ql, ScratchPad2D<Real> qr) {}
 // DONOR CELL
 template <>
 KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::donor_cell, X1DIR>(parthenon::team_mbr_t& member,
-                                        const GRCoordinates& G, const VariablePack<Real> &P,
+                                        const VariablePack<Real> &P,
                                         const int& k, const int& j, const int& is_l, const int& ie_l, 
                                         ScratchPad2D<Real> ql, ScratchPad2D<Real> qr)
 {
@@ -367,7 +367,7 @@ KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::donor_cell, X1DIR>(p
 }
 template <>
 KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::donor_cell, X2DIR>(parthenon::team_mbr_t& member,
-                                        const GRCoordinates& G, const VariablePack<Real> &P,
+                                        const VariablePack<Real> &P,
                                         const int& k, const int& j, const int& is_l, const int& ie_l, 
                                         ScratchPad2D<Real> ql, ScratchPad2D<Real> qr)
 {
@@ -377,7 +377,7 @@ KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::donor_cell, X2DIR>(p
 }
 template <>
 KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::donor_cell, X3DIR>(parthenon::team_mbr_t& member,
-                                        const GRCoordinates& G, const VariablePack<Real> &P,
+                                        const VariablePack<Real> &P,
                                         const int& k, const int& j, const int& is_l, const int& ie_l, 
                                         ScratchPad2D<Real> ql, ScratchPad2D<Real> qr)
 {
@@ -386,53 +386,53 @@ KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::donor_cell, X3DIR>(p
     DonorCellX3(member, k, j, is_l, ie_l, P, q_u, qr);
 }
 // LINEAR W/VAN LEER
-template <>
-KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::linear_vl, X1DIR>(parthenon::team_mbr_t& member,
-                                        const GRCoordinates& G, const VariablePack<Real> &P,
-                                        const int& k, const int& j, const int& is_l, const int& ie_l, 
-                                        ScratchPad2D<Real> ql, ScratchPad2D<Real> qr)
-{
-    // Extra scratch space for Parthenon's VL limiter stuff
-    ScratchPad2D<Real>  qc(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
-    ScratchPad2D<Real> dql(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
-    ScratchPad2D<Real> dqr(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
-    ScratchPad2D<Real> dqm(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
-    PiecewiseLinearX1(member, k, j, is_l, ie_l, G, P, ql, qr, qc, dql, dqr, dqm);
-}
-template <>
-KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::linear_vl, X2DIR>(parthenon::team_mbr_t& member,
-                                        const GRCoordinates& G, const VariablePack<Real> &P,
-                                        const int& k, const int& j, const int& is_l, const int& ie_l, 
-                                        ScratchPad2D<Real> ql, ScratchPad2D<Real> qr)
-{
-    // Extra scratch space for Parthenon's VL limiter stuff
-    ScratchPad2D<Real>  qc(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
-    ScratchPad2D<Real> dql(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
-    ScratchPad2D<Real> dqr(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
-    ScratchPad2D<Real> dqm(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
-    ScratchPad2D<Real> q_u(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
-    PiecewiseLinearX2(member, k, j - 1, is_l, ie_l, G, P, ql, q_u, qc, dql, dqr, dqm);
-    PiecewiseLinearX2(member, k, j, is_l, ie_l, G, P, q_u, qr, qc, dql, dqr, dqm);
-}
-template <>
-KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::linear_vl, X3DIR>(parthenon::team_mbr_t& member,
-                                        const GRCoordinates& G, const VariablePack<Real> &P,
-                                        const int& k, const int& j, const int& is_l, const int& ie_l, 
-                                        ScratchPad2D<Real> ql, ScratchPad2D<Real> qr)
-{
-    // Extra scratch space for Parthenon's VL limiter stuff
-    ScratchPad2D<Real>  qc(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
-    ScratchPad2D<Real> dql(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
-    ScratchPad2D<Real> dqr(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
-    ScratchPad2D<Real> dqm(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
-    ScratchPad2D<Real> q_u(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
-    PiecewiseLinearX3(member, k - 1, j, is_l, ie_l, G, P, ql, q_u, qc, dql, dqr, dqm);
-    PiecewiseLinearX3(member, k, j, is_l, ie_l, G, P, q_u, qr, qc, dql, dqr, dqm);
-}
+// template <>
+// KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::linear_vl, X1DIR>(parthenon::team_mbr_t& member,
+//                                         const VariablePack<Real> &P,
+//                                         const int& k, const int& j, const int& is_l, const int& ie_l, 
+//                                         ScratchPad2D<Real> ql, ScratchPad2D<Real> qr)
+// {
+//     // Extra scratch space for Parthenon's VL limiter stuff
+//     ScratchPad2D<Real>  qc(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
+//     ScratchPad2D<Real> dql(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
+//     ScratchPad2D<Real> dqr(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
+//     ScratchPad2D<Real> dqm(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
+//     PiecewiseLinearX1(member, k, j, is_l, ie_l, G, P, ql, qr, qc, dql, dqr, dqm);
+// }
+// template <>
+// KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::linear_vl, X2DIR>(parthenon::team_mbr_t& member,
+//                                         const VariablePack<Real> &P,
+//                                         const int& k, const int& j, const int& is_l, const int& ie_l, 
+//                                         ScratchPad2D<Real> ql, ScratchPad2D<Real> qr)
+// {
+//     // Extra scratch space for Parthenon's VL limiter stuff
+//     ScratchPad2D<Real>  qc(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
+//     ScratchPad2D<Real> dql(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
+//     ScratchPad2D<Real> dqr(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
+//     ScratchPad2D<Real> dqm(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
+//     ScratchPad2D<Real> q_u(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
+//     PiecewiseLinearX2(member, k, j - 1, is_l, ie_l, G, P, ql, q_u, qc, dql, dqr, dqm);
+//     PiecewiseLinearX2(member, k, j, is_l, ie_l, G, P, q_u, qr, qc, dql, dqr, dqm);
+// }
+// template <>
+// KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::linear_vl, X3DIR>(parthenon::team_mbr_t& member,
+//                                         const VariablePack<Real> &P,
+//                                         const int& k, const int& j, const int& is_l, const int& ie_l, 
+//                                         ScratchPad2D<Real> ql, ScratchPad2D<Real> qr)
+// {
+//     // Extra scratch space for Parthenon's VL limiter stuff
+//     ScratchPad2D<Real>  qc(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
+//     ScratchPad2D<Real> dql(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
+//     ScratchPad2D<Real> dqr(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
+//     ScratchPad2D<Real> dqm(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
+//     ScratchPad2D<Real> q_u(member.team_scratch(1), P.GetDim(4), P.GetDim(1));
+//     PiecewiseLinearX3(member, k - 1, j, is_l, ie_l, G, P, ql, q_u, qc, dql, dqr, dqm);
+//     PiecewiseLinearX3(member, k, j, is_l, ie_l, G, P, q_u, qr, qc, dql, dqr, dqm);
+// }
 // LINEAR WITH MC
 template <>
 KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::linear_mc, X1DIR>(parthenon::team_mbr_t& member,
-                                        const GRCoordinates& G, const VariablePack<Real> &P,
+                                        const VariablePack<Real> &P,
                                         const int& k, const int& j, const int& is_l, const int& ie_l, 
                                         ScratchPad2D<Real> ql, ScratchPad2D<Real> qr)
 {
@@ -440,7 +440,7 @@ KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::linear_mc, X1DIR>(pa
 }
 template <>
 KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::linear_mc, X2DIR>(parthenon::team_mbr_t& member,
-                                        const GRCoordinates& G, const VariablePack<Real> &P,
+                                        const VariablePack<Real> &P,
                                         const int& k, const int& j, const int& is_l, const int& ie_l, 
                                         ScratchPad2D<Real> ql, ScratchPad2D<Real> qr)
 {
@@ -450,7 +450,7 @@ KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::linear_mc, X2DIR>(pa
 }
 template <>
 KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::linear_mc, X3DIR>(parthenon::team_mbr_t& member,
-                                        const GRCoordinates& G, const VariablePack<Real> &P,
+                                        const VariablePack<Real> &P,
                                         const int& k, const int& j, const int& is_l, const int& ie_l, 
                                         ScratchPad2D<Real> ql, ScratchPad2D<Real> qr)
 {
@@ -461,7 +461,7 @@ KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::linear_mc, X3DIR>(pa
 // WENO5
 template <>
 KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::weno5, X1DIR>(parthenon::team_mbr_t& member,
-                                        const GRCoordinates& G, const VariablePack<Real> &P,
+                                        const VariablePack<Real> &P,
                                         const int& k, const int& j, const int& is_l, const int& ie_l, 
                                         ScratchPad2D<Real> ql, ScratchPad2D<Real> qr)
 {
@@ -469,7 +469,7 @@ KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::weno5, X1DIR>(parthe
 }
 template <>
 KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::weno5, X2DIR>(parthenon::team_mbr_t& member,
-                                        const GRCoordinates& G, const VariablePack<Real> &P,
+                                        const VariablePack<Real> &P,
                                         const int& k, const int& j, const int& is_l, const int& ie_l, 
                                         ScratchPad2D<Real> ql, ScratchPad2D<Real> qr)
 {
@@ -478,7 +478,7 @@ KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::weno5, X2DIR>(parthe
 }
 template <>
 KOKKOS_INLINE_FUNCTION void reconstruct<ReconstructionType::weno5, X3DIR>(parthenon::team_mbr_t& member,
-                                        const GRCoordinates& G, const VariablePack<Real> &P,
+                                        const VariablePack<Real> &P,
                                         const int& k, const int& j, const int& is_l, const int& ie_l, 
                                         ScratchPad2D<Real> ql, ScratchPad2D<Real> qr)
 {
