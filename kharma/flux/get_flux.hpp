@@ -202,20 +202,92 @@ inline TaskStatus GetFlux(MeshData<Real> *md)
             // LEFT FACES
             parthenon::par_for_inner(member, il.s, il.e,
                 [&](const int& i) {
-                    auto Pl = Kokkos::subview(Pl_s, Kokkos::ALL(), i);
-                    auto Ul = Kokkos::subview(Ul_s, Kokkos::ALL(), i);
-                    auto Fl = Kokkos::subview(Fl_s, Kokkos::ALL(), i);
+                    auto P = Kokkos::subview(Pl_s, Kokkos::ALL(), i);
+                    auto U = Kokkos::subview(Ul_s, Kokkos::ALL(), i);
+                    auto F = Kokkos::subview(Fl_s, Kokkos::ALL(), i);
                     // Declare temporary vectors
-                    FourVectors Dtmp;
+                    FourVectors D;
 
                     // Left
-                    GRMHD::calc_4vecs(G, Pl, m_p, j, i, loc, Dtmp);
-                    Flux::prim_to_flux(G, Pl, m_p, Dtmp, emhd_params, gam, j, i, 0, Ul, m_u, loc);
-                    Flux::prim_to_flux(G, Pl, m_p, Dtmp, emhd_params, gam, j, i, dir, Fl, m_u, loc);
+                    const Real gamma = GRMHD::lorentz_calc(G, P, m_p, j, i, loc);
+                    const Real inv_alpha = m::sqrt(-G.gcon(loc, j, i, 0, 0));
+
+                    // Four-vectors
+                    D.ucon[0] = gamma * inv_alpha;
+                    VLOOP D.ucon[v+1] = P(m_p.U1 + v) - gamma / inv_alpha * G.gcon(loc, j, i, 0, v+1);
+                    G.lower(D.ucon, D.ucov, 0, j, i, loc);
+                    //DLOOP2 D.ucov[mu] += G.gcov(loc, j, i, mu, nu) * D.ucon[nu];
+                    D.bcon[0] = 0;
+                    VLOOP D.bcon[0] += P(m_p.B1 + v) * D.ucov[v+1];
+                    VLOOP D.bcon[v+1] = (P(m_p.B1 + v) + D.bcon[0] * D.ucon[v+1]) / D.ucon[0];
+                    G.lower(D.bcon, D.bcov, 0, j, i, loc);
+                    //DLOOP2 D.bcov[mu] += G.gcov(loc, j, i, mu, nu) * D.bcon[nu];
+
+                    // State U
+                    Real gdet = G.gdet(loc, j, i);
+                    // Particle number flux
+                    U(m_u.RHO) = P(m_p.RHO) * D.ucon[0] * gdet;
+                    // Stress-energy tensor
+                    Real T[GR_DIM];
+                    //calc_tensor(P, m_p, D, emhd_params, gam, dir, T);
+                    GRMHD::calc_tensor(P(m_p.RHO), P(m_p.UU), (gam - 1) * P(m_p.UU), D, 0, T);
+                    U(m_u.UU) = T[0] * gdet + U(m_u.RHO);
+                    U(m_u.U1) = T[1] * gdet;
+                    U(m_u.U2) = T[2] * gdet;
+                    U(m_u.U3) = T[3] * gdet;
+                    VLOOP U(m_u.B1 + v) = P(m_p.B1 + v) * gdet;
+
+                    // Flux F
+                    // Particle number flux
+                    F(m_u.RHO) = P(m_p.RHO) * D.ucon[dir] * gdet;
+                    // Stress-energy tensor
+                    //calc_tensor(P, m_p, D, emhd_params, gam, dir, T);
+                    GRMHD::calc_tensor(P(m_p.RHO), P(m_p.UU), (gam - 1) * P(m_p.UU), D, dir, T);
+                    F(m_u.UU) = T[0] * gdet + F(m_u.RHO);
+                    F(m_u.U1) = T[1] * gdet;
+                    F(m_u.U2) = T[2] * gdet;
+                    F(m_u.U3) = T[3] * gdet;
+                    VLOOP F(m_u.B1 + v) = (D.bcon[v+1] * D.ucon[dir] - D.bcon[dir] * D.ucon[v+1]) * gdet;
 
                     // Magnetosonic speeds
                     Real cmaxL, cminL;
-                    Flux::vchar(G, Pl, m_p, Dtmp, gam, emhd_params, k, j, i, loc, dir, cmaxL, cminL);
+                    const Real ef  = P(m_p.RHO) + gam * P(m_p.UU);
+                    const Real cs2 = gam * (gam - 1) * P(m_p.UU) / ef;
+                    // Find fast magnetosonic speed
+                    const Real bsq = m::max(dot(D.bcon, D.bcov), SMALL);
+                    const Real ee  = bsq + ef;
+                    const Real va2 = bsq / ee;
+                    Real cms2 = cs2 + va2 - cs2 * va2;
+                    clip(cms2, SMALL, 1.);
+                    // Require that speed of wave measured by observer q.ucon is cms2
+                    Real A, B, C;
+                    {
+                        Real Bcov[GR_DIM] = {1., 0., 0., 0.};
+                        Real Acov[GR_DIM] = {0}; Acov[dir] = 1.;
+
+                        Real Acon[GR_DIM], Bcon[GR_DIM];
+                        G.raise(Acov, Acon, k, j, i, loc);
+                        G.raise(Bcov, Bcon, k, j, i, loc);
+
+                        const Real Asq  = dot(Acon, Acov);
+                        const Real Bsq  = dot(Bcon, Bcov);
+                        const Real Au   = dot(Acov, D.ucon);
+                        const Real Bu   = dot(Bcov, D.ucon);
+                        const Real AB   = dot(Acon, Bcov);
+                        const Real Au2  = Au * Au;
+                        const Real Bu2  = Bu * Bu;
+                        const Real AuBu = Au * Bu;
+
+                        A = Bu2 - (Bsq + Bu2) * cms2;
+                        B = 2. * (AuBu - (AB + AuBu) * cms2);
+                        C = Au2 - (Asq + Au2) * cms2;
+                    }
+
+                    Real discr = m::sqrt(m::max(B * B - 4. * A * C, 0.));
+                    Real vp = -(-B + discr) / (2. * A);
+                    Real vm = -(-B - discr) / (2. * A);
+                    cmaxL = m::max(vp, vm);
+                    cminL = m::min(vp, vm);
 
                     // Record speeds
                     cmax(b, dir-1, k, j, i) = m::max(0., cmaxL);
