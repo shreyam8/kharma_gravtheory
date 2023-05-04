@@ -51,7 +51,7 @@ namespace Flux
 
 // TODO Q > 0 != emhd_enabled.  Store enablement in emhd_params since we need it anyway
 template<typename Local>
-KOKKOS_INLINE_FUNCTION void calc_tensor(const GRCoordinates& G, const Local& P, const VarMap& m_p, const FourVectors D,
+KOKKOS_INLINE_FUNCTION void calc_tensor(const Local& P, const VarMap& m_p, const FourVectors D,
                                         const EMHD::EMHD_parameters& emhd_params, const Real& gam, const int& dir,
                                         Real T[GR_DIM])
 {
@@ -74,7 +74,7 @@ KOKKOS_INLINE_FUNCTION void calc_tensor(const GRCoordinates& G, const Local& P, 
 }
 
 template<typename Global>
-KOKKOS_INLINE_FUNCTION void calc_tensor(const GRCoordinates& G, const Global& P, const VarMap& m_p, const FourVectors D,
+KOKKOS_INLINE_FUNCTION void calc_tensor(const Global& P, const VarMap& m_p, const FourVectors D,
                                         const EMHD::EMHD_parameters& emhd_params, const Real& gam, 
                                         const int& k, const int& j, const int& i, const int& dir,
                                         Real T[GR_DIM])
@@ -114,7 +114,8 @@ KOKKOS_INLINE_FUNCTION void prim_to_flux(const GRCoordinates& G, const Local& P,
 
     // Stress-energy tensor
     Real T[GR_DIM];
-    calc_tensor(G, P, m_p, D, emhd_params, gam, dir, T);
+    //calc_tensor(P, m_p, D, emhd_params, gam, dir, T);
+    GRMHD::calc_tensor(P(m_p.RHO), P(m_p.UU), (gam - 1) * P(m_p.UU), D, dir, T);
     flux(m_u.UU) = T[0] * gdet + flux(m_u.RHO);
     flux(m_u.U1) = T[1] * gdet;
     flux(m_u.U2) = T[2] * gdet;
@@ -130,41 +131,42 @@ KOKKOS_INLINE_FUNCTION void prim_to_flux(const GRCoordinates& G, const Local& P,
             // but for us this is in the source term
             VLOOP flux(m_u.B1 + v) = (D.bcon[v+1] * D.ucon[dir] - D.bcon[dir] * D.ucon[v+1]) * gdet;
         }
-        // Extra scalar psi for constraint damping, see B_CD
-        if (m_p.PSI >= 0) {
-            if (dir == 0) {
-                flux(m_u.PSI) = P(m_p.PSI) * gdet;
-            } else {
-                // Psi field update as in Mosta et al (IllinoisGRMHD), alternate explanation Jesse et al (2020)
-                //Real alpha = 1. / m::sqrt(-G.gcon(Loci::center, j, i, 0, 0));
-                //Real beta_dir = G.gcon(Loci::center, j, i, 0, dir) * alpha * alpha;
-                flux(m_u.PSI) = (D.bcon[dir] - G.gcon(Loci::center, j, i, 0, dir) * P(m_p.PSI)) * gdet;
-            }
-        }
     }
+    //     // Extra scalar psi for constraint damping, see B_CD
+    //     if (m_p.PSI >= 0) {
+    //         if (dir == 0) {
+    //             flux(m_u.PSI) = P(m_p.PSI) * gdet;
+    //         } else {
+    //             // Psi field update as in Mosta et al (IllinoisGRMHD), alternate explanation Jesse et al (2020)
+    //             //Real alpha = 1. / m::sqrt(-G.gcon(Loci::center, j, i, 0, 0));
+    //             //Real beta_dir = G.gcon(Loci::center, j, i, 0, dir) * alpha * alpha;
+    //             flux(m_u.PSI) = (D.bcon[dir] - G.gcon(Loci::center, j, i, 0, dir) * P(m_p.PSI)) * gdet;
+    //         }
+    //     }
+    // }
 
-    // EMHD Variables: advect like rho
-    if (m_p.Q >= 0) {
-        flux(m_u.Q) = P(m_p.Q) * D.ucon[dir] * gdet;
-        flux(m_u.DP) = P(m_p.DP) * D.ucon[dir] * gdet;
-    }
+    // // EMHD Variables: advect like rho
+    // if (m_p.Q >= 0) {
+    //     flux(m_u.Q) = P(m_p.Q) * D.ucon[dir] * gdet;
+    //     flux(m_u.DP) = P(m_p.DP) * D.ucon[dir] * gdet;
+    // }
 
-    // Electrons: normalized by density
-    if (m_p.KTOT >= 0) {
-        flux(m_u.KTOT) = flux(m_u.RHO) * P(m_p.KTOT);
-        if (m_p.K_CONSTANT >= 0)
-            flux(m_u.K_CONSTANT) = flux(m_u.RHO) * P(m_p.K_CONSTANT);
-        if (m_p.K_HOWES >= 0)
-            flux(m_u.K_HOWES) = flux(m_u.RHO) * P(m_p.K_HOWES);
-        if (m_p.K_KAWAZURA >= 0)
-            flux(m_u.K_KAWAZURA) = flux(m_u.RHO) * P(m_p.K_KAWAZURA);
-        if (m_p.K_WERNER >= 0)
-            flux(m_u.K_WERNER) = flux(m_u.RHO) * P(m_p.K_WERNER);
-        if (m_p.K_ROWAN >= 0)
-            flux(m_u.K_ROWAN) = flux(m_u.RHO) * P(m_p.K_ROWAN);
-        if (m_p.K_SHARMA >= 0)
-            flux(m_u.K_SHARMA) = flux(m_u.RHO) * P(m_p.K_SHARMA);
-    }
+    // // Electrons: normalized by density
+    // if (m_p.KTOT >= 0) {
+    //     flux(m_u.KTOT) = flux(m_u.RHO) * P(m_p.KTOT);
+    //     if (m_p.K_CONSTANT >= 0)
+    //         flux(m_u.K_CONSTANT) = flux(m_u.RHO) * P(m_p.K_CONSTANT);
+    //     if (m_p.K_HOWES >= 0)
+    //         flux(m_u.K_HOWES) = flux(m_u.RHO) * P(m_p.K_HOWES);
+    //     if (m_p.K_KAWAZURA >= 0)
+    //         flux(m_u.K_KAWAZURA) = flux(m_u.RHO) * P(m_p.K_KAWAZURA);
+    //     if (m_p.K_WERNER >= 0)
+    //         flux(m_u.K_WERNER) = flux(m_u.RHO) * P(m_p.K_WERNER);
+    //     if (m_p.K_ROWAN >= 0)
+    //         flux(m_u.K_ROWAN) = flux(m_u.RHO) * P(m_p.K_ROWAN);
+    //     if (m_p.K_SHARMA >= 0)
+    //         flux(m_u.K_SHARMA) = flux(m_u.RHO) * P(m_p.K_SHARMA);
+    // }
 
 }
 
@@ -179,7 +181,8 @@ KOKKOS_INLINE_FUNCTION void prim_to_flux(const GRCoordinates& G, const Global& P
     flux(m_u.RHO, k, j, i) = P(m_p.RHO, k, j, i) * D.ucon[dir] * gdet;
 
     Real T[GR_DIM];
-    calc_tensor(G, P, m_p, D, emhd_params, gam, k, j, i, dir, T);
+    //calc_tensor(P, m_p, D, emhd_params, gam, k, j, i, dir, T);
+    GRMHD::calc_tensor(P(m_p.RHO, k, j, i), P(m_p.UU, k, j, i), (gam - 1) * P(m_p.UU, k, j, i), D, dir, T);
     flux(m_u.UU, k, j, i) = T[0] * gdet + flux(m_u.RHO, k, j, i);
     flux(m_u.U1, k, j, i) = T[1] * gdet;
     flux(m_u.U2, k, j, i) = T[2] * gdet;
@@ -195,41 +198,42 @@ KOKKOS_INLINE_FUNCTION void prim_to_flux(const GRCoordinates& G, const Global& P
             // but for us this is in the source term
             VLOOP flux(m_u.B1 + v, k, j, i) = (D.bcon[v+1] * D.ucon[dir] - D.bcon[dir] * D.ucon[v+1]) * gdet;
         }
-        // Extra scalar psi for constraint damping, see B_CD
-        if (m_p.PSI >= 0) {
-            if (dir == 0) {
-                flux(m_u.PSI, k, j, i) = P(m_p.PSI, k, j, i) * gdet;
-            } else {
-                // Psi field update as in Mosta et al (IllinoisGRMHD), alternate explanation Jesse et al (2020)
-                //Real alpha = 1. / sqrt(-G.gcon(Loci::center, j, i, 0, 0));
-                //Real beta_dir = G.gcon(Loci::center, j, i, 0, dir) * alpha * alpha;
-                flux(m_u.PSI, k, j, i) = (D.bcon[dir] - G.gcon(Loci::center, j, i, 0, dir) * P(m_p.PSI, k, j, i)) * gdet;
-            }
-        }
     }
+    //     // Extra scalar psi for constraint damping, see B_CD
+    //     if (m_p.PSI >= 0) {
+    //         if (dir == 0) {
+    //             flux(m_u.PSI, k, j, i) = P(m_p.PSI, k, j, i) * gdet;
+    //         } else {
+    //             // Psi field update as in Mosta et al (IllinoisGRMHD), alternate explanation Jesse et al (2020)
+    //             //Real alpha = 1. / sqrt(-G.gcon(Loci::center, j, i, 0, 0));
+    //             //Real beta_dir = G.gcon(Loci::center, j, i, 0, dir) * alpha * alpha;
+    //             flux(m_u.PSI, k, j, i) = (D.bcon[dir] - G.gcon(Loci::center, j, i, 0, dir) * P(m_p.PSI, k, j, i)) * gdet;
+    //         }
+    //     }
+    // }
 
-    // EMHD Variables: advect like rho
-    if (m_p.Q >= 0) {
-        flux(m_u.Q, k, j, i)  = P(m_p.Q, k, j, i) * D.ucon[dir] * gdet;
-        flux(m_u.DP, k, j, i) = P(m_p.DP, k, j, i) * D.ucon[dir] * gdet;
-    }
+    // // EMHD Variables: advect like rho
+    // if (m_p.Q >= 0) {
+    //     flux(m_u.Q, k, j, i)  = P(m_p.Q, k, j, i) * D.ucon[dir] * gdet;
+    //     flux(m_u.DP, k, j, i) = P(m_p.DP, k, j, i) * D.ucon[dir] * gdet;
+    // }
 
-    // Electrons: normalized by density
-    if (m_p.KTOT >= 0) {
-        flux(m_u.KTOT, k, j, i)  = flux(m_u.RHO, k, j, i) * P(m_p.KTOT, k, j, i);
-        if (m_p.K_CONSTANT >= 0)
-            flux(m_u.K_CONSTANT, k, j, i) = flux(m_u.RHO, k, j, i) * P(m_p.K_CONSTANT, k, j, i);
-        if (m_p.K_HOWES >= 0)
-            flux(m_u.K_HOWES, k, j, i)    = flux(m_u.RHO, k, j, i) * P(m_p.K_HOWES, k, j, i);
-        if (m_p.K_KAWAZURA >= 0)
-            flux(m_u.K_KAWAZURA, k, j, i) = flux(m_u.RHO, k, j, i) * P(m_p.K_KAWAZURA, k, j, i);
-        if (m_p.K_WERNER >= 0)
-            flux(m_u.K_WERNER, k, j, i)   = flux(m_u.RHO, k, j, i) * P(m_p.K_WERNER, k, j, i);
-        if (m_p.K_ROWAN >= 0)
-            flux(m_u.K_ROWAN, k, j, i)    = flux(m_u.RHO, k, j, i) * P(m_p.K_ROWAN, k, j, i);
-        if (m_p.K_SHARMA >= 0)
-            flux(m_u.K_SHARMA, k, j, i)   = flux(m_u.RHO, k, j, i) * P(m_p.K_SHARMA, k, j, i);
-    }
+    // // Electrons: normalized by density
+    // if (m_p.KTOT >= 0) {
+    //     flux(m_u.KTOT, k, j, i)  = flux(m_u.RHO, k, j, i) * P(m_p.KTOT, k, j, i);
+    //     if (m_p.K_CONSTANT >= 0)
+    //         flux(m_u.K_CONSTANT, k, j, i) = flux(m_u.RHO, k, j, i) * P(m_p.K_CONSTANT, k, j, i);
+    //     if (m_p.K_HOWES >= 0)
+    //         flux(m_u.K_HOWES, k, j, i)    = flux(m_u.RHO, k, j, i) * P(m_p.K_HOWES, k, j, i);
+    //     if (m_p.K_KAWAZURA >= 0)
+    //         flux(m_u.K_KAWAZURA, k, j, i) = flux(m_u.RHO, k, j, i) * P(m_p.K_KAWAZURA, k, j, i);
+    //     if (m_p.K_WERNER >= 0)
+    //         flux(m_u.K_WERNER, k, j, i)   = flux(m_u.RHO, k, j, i) * P(m_p.K_WERNER, k, j, i);
+    //     if (m_p.K_ROWAN >= 0)
+    //         flux(m_u.K_ROWAN, k, j, i)    = flux(m_u.RHO, k, j, i) * P(m_p.K_ROWAN, k, j, i);
+    //     if (m_p.K_SHARMA >= 0)
+    //         flux(m_u.K_SHARMA, k, j, i)   = flux(m_u.RHO, k, j, i) * P(m_p.K_SHARMA, k, j, i);
+    // }
 }
 
 /**
@@ -246,7 +250,7 @@ KOKKOS_INLINE_FUNCTION void prim_to_flux_mhd(const GRCoordinates& G, const Globa
     flux(m_u.RHO, k, j, i) = P(m_p.RHO, k, j, i) * D.ucon[dir] * gdet;
 
     Real T[GR_DIM];
-    calc_tensor(G, P, m_p, D, emhd_params, gam, k, j, i, dir, T);
+    calc_tensor(P, m_p, D, emhd_params, gam, k, j, i, dir, T);
     flux(m_u.UU, k, j, i) = T[0] * gdet + flux(m_u.RHO, k, j, i);
     flux(m_u.U1, k, j, i) = T[1] * gdet;
     flux(m_u.U2, k, j, i) = T[2] * gdet;

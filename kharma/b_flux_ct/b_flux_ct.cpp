@@ -106,35 +106,23 @@ std::shared_ptr<KHARMAPackage> Initialize(ParameterInput *pin, std::shared_ptr<P
     params.Add("divb_reducer", AllReduce<Real>());
 
     // FIELDS
-
+    // Vector size: 3x[grid shape]
     std::vector<int> s_vector({NVEC});
-
-    int ng = pin->GetInteger("parthenon/mesh", "nghost");
-    int nx1 = pin->GetInteger("parthenon/meshblock", "nx1");
-    int n1 = nx1 + 2*ng;
-    int nx2 = pin->GetInteger("parthenon/meshblock", "nx2");
-    int n2 = (nx2 == 1) ? nx2 : nx2 + 2*ng;
-    int nx3 = pin->GetInteger("parthenon/meshblock", "nx3");
-    int n3 = (nx3 == 1) ? nx3 : nx3 + 2*ng;
-    std::vector<int> s_emf({n1, n2, n3, NVEC});
 
     // Mark if we're evolving implicitly
     MetadataFlag areWeImplicit = (implicit_b) ? Metadata::GetUserFlag("Implicit")
-                                                : Metadata::GetUserFlag("Explicit");
+                                              : Metadata::GetUserFlag("Explicit");
 
     // Flags for B fields.  "Primitive" form is field, "conserved" is flux
     std::vector<MetadataFlag> flags_prim = {Metadata::Real, Metadata::Cell, Metadata::Derived, Metadata::GetUserFlag("Primitive"),
                                             Metadata::Restart, Metadata::GetUserFlag("MHD"), areWeImplicit, Metadata::Vector};
     std::vector<MetadataFlag> flags_cons = {Metadata::Real, Metadata::Cell, Metadata::Independent, Metadata::Conserved,
                                             Metadata::WithFluxes, Metadata::FillGhost, Metadata::GetUserFlag("MHD"), areWeImplicit, Metadata::Vector};
-    std::vector<MetadataFlag> flags_emf = {Metadata::Real, Metadata::Derived, Metadata::OneCopy};
 
     auto m = Metadata(flags_prim, s_vector);
     pkg->AddField("prims.B", m);
     m = Metadata(flags_cons, s_vector);
     pkg->AddField("cons.B", m);
-    m = Metadata(flags_emf, s_emf);
-    pkg->AddField("emf", m);
 
     // We exist basically to do this
     pkg->FixFlux = B_FluxCT::FixFlux;
@@ -151,11 +139,16 @@ std::shared_ptr<KHARMAPackage> Initialize(ParameterInput *pin, std::shared_ptr<P
     // The definition of MaxDivB we care about actually changes per-transport,
     // so calculating it is handled by the transport package
     // We'd only ever need to declare or calculate divB for output (getting the max is independent)
+
     if (KHARMA::FieldIsOutput(pin, "divB")) {
         pkg->BlockUserWorkBeforeOutput = B_FluxCT::FillOutput;
         m = Metadata({Metadata::Real, Metadata::Cell, Metadata::Derived, Metadata::OneCopy});
         pkg->AddField("divB", m);
     }
+    // TODO edge when available
+    std::vector<MetadataFlag> flags_emf = {Metadata::Real, Metadata::Cell, Metadata::Derived, Metadata::OneCopy};
+    m = Metadata(flags_emf, s_vector);
+    pkg->AddField("emf", m);
 
     // List (vector) of HistoryOutputVars that will all be enrolled as output variables
     parthenon::HstVar_list hst_vars = {};
@@ -261,16 +254,6 @@ void FluxCT(MeshData<Real> *md)
     const IndexRange il = IndexRange{ib.s, ib.e + 1};
     const IndexRange jl = IndexRange{jb.s, jb.e + 1};
     const IndexRange kl = (ndim > 2) ? IndexRange{kb.s, kb.e + 1} : kb;
-
-    // Declare temporaries
-    // TODO make these a true Edge field when that's available
-    //const int n1 = pmb0->cellbounds.ncellsi(IndexDomain::entire);
-    //const int n2 = pmb0->cellbounds.ncellsj(IndexDomain::entire);
-    //const int n3 = pmb0->cellbounds.ncellsk(IndexDomain::entire);
-    //const int nb = md->NumBlocks();
-    //GridScalar emf1("emf1", nb, n3, n2, n1);
-    //GridScalar emf2("emf2", nb, n3, n2, n1);
-    //GridScalar emf3("emf3", nb, n3, n2, n1);
 
     // Calculate emf around each face
     Flag(md, "Calc EMFs");
