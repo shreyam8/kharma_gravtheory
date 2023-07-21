@@ -25,7 +25,8 @@ def format_args(args):
 
 def calc_runtime(r_out, r_b):
     """r/v where v=sqrt(v_ff**2+c_s**2)"""
-    return r_out/np.sqrt(1./r_out + 1./r_b)
+    #return r_out/np.sqrt(1./r_out + 1./r_b)
+    return np.power(min(r_out,r_b),3./2)
 
 def data_dir(n):
     """Data directory naming scheme"""
@@ -51,7 +52,7 @@ def data_dir(n):
 # Flags and options
 @click.option('--kharma_bin', default="kharma.cuda", help="Name (not path) of KHARMA binary to run")
 @click.option('--kharma_args', default="", help="Arguments for KHARMA run.sh")
-@click.option('--short_t_out', default=True, help="Use shorter outermost annulus")
+@click.option('--short_t_out', is_flag=True, help="Use shorter outermost annulus")
 @click.option('--restart', is_flag=True, help="Restart from most recent run parameters")
 @click.option('--parfile', default=None, help="Parameter filename")
 @click.option('--gizmo', is_flag=True, help="Start from GIZMO data")
@@ -90,7 +91,9 @@ def run_multizone(**kwargs):
         args = pickle.load(restart_file)
         restart_file.close()
         for arg in kwargs_save.keys():
-            kwargs[arg] = kwargs_save[arg]
+            if 'nlim' not in arg: # can change nlim from previous run
+                kwargs[arg] = kwargs_save[arg]
+        args['parthenon/time/nlim'] = kwargs['nlim']
     else:
         # First run arguments
         base = kwargs['base']
@@ -112,10 +115,14 @@ def run_multizone(**kwargs):
 
         # bondi & vacuum parameters
         # TODO derive these from r_b or gizmo
-        if kwargs['nzones'] == 3:
+        if kwargs['nzones'] == 3 or kwargs['nzones'] == 6:
             kwargs['r_b'] = 256
             logrho = -4.13354231
             log_u_over_rho = -2.57960521
+        elif kwargs['nzones'] == 4:
+            kwargs['r_b'] = 256
+            logrho = -4.200592800419657
+            log_u_over_rho = -2.62430556
         elif kwargs['gizmo']:
             kwargs['r_b'] = 1e5
             logrho = -7.80243572
@@ -131,7 +138,7 @@ def run_multizone(**kwargs):
         # B field additions
         if kwargs['bz'] != 0.0:
             # Set a field to initialize with 
-            args['b_field/type'] = "vertical"
+            args['b_field/type'] = "r1s2" #"vertical"
             args['b_field/solver'] = "flux_ct"
             args['b_field/bz'] = kwargs['bz']
             # Compress coordinates to save time
@@ -140,8 +147,8 @@ def run_multizone(**kwargs):
             # Enable the floors
             args['floors/disable_floors'] = False
             # And modify a bunch of defaults
-            # Assume we will always want jitter if we have B
-            if kwargs['jitter'] == 0.0:
+            # Assume we will always want jitter if we have B unless a 2D problem
+            if kwargs['jitter'] == 0.0 and kwargs['nx3']>1 :
                 kwargs['jitter'] = 0.1
             # Lower the cfl condition in B field
             args['GRMHD/cfl'] = 0.5
@@ -182,15 +189,15 @@ def run_multizone(**kwargs):
                 runtime = calc_runtime(r_out, r_b)
             # B field runs use half this
             if kwargs['bz'] != 0.0:
-                runtime /= 2
+                runtime /= 50 # 2
         else:
             runtime = float(kwargs['tlim'])
         args['parthenon/time/tlim'] = kwargs['start_time'] + runtime
 
         # Output timing (TODO make options)
-        args['parthenon/output0/dt'] = max(int(runtime/10.), 1)
-        args['parthenon/output1/dt'] = max(int(runtime/5.), 1)
-        args['parthenon/output2/dt'] = runtime/100.
+        args['parthenon/output0/dt'] = max((runtime/4.), 1e-7)
+        args['parthenon/output1/dt'] = max((runtime/2.), 1e-7)
+        args['parthenon/output2/dt'] = runtime/10 #0.
 
         # Start any future run from this point
         kwargs['start_run'] = run_num
@@ -220,7 +227,7 @@ def run_multizone(**kwargs):
 
         # Don't continue (& save restart data, etc) if KHARMA returned error
         if ret_obj.returncode != 0:
-            print("KHARMA returned error: {}. Exiting.".format(ret_obj.retcode))
+            print("KHARMA returned error: {}. Exiting.".format(ret_obj.returncode))
             exit(-1)
 
         # Update parameters for the next pass
@@ -263,7 +270,7 @@ def update_args(run_num, kwargs, args):
     #   print("Moving outward:")
 
     # Choose timestep and radii for the next run: smaller/larger as we step in/out
-    args['parthenon/time/dt_min'] = max(dt_last * kwargs['base']**(-3./2.*out_to_in) / 4, 1e-5)
+    args['parthenon/time/dt'] = max(dt_last * kwargs['base']**(-3./2.*out_to_in) / 4, 1e-5)
     if out_to_in > 0:
         args['coordinates/r_out'] = last_r_out / kwargs['base']
         args['coordinates/r_in'] = last_r_in / kwargs['base']
