@@ -1,5 +1,6 @@
 #!/bin/bash
 # Admin stuff
+#SBATCH -A t23_eh_variability_g
 #SBATCH -J KHARMA-MZ
 #SBATCH -t 12:00:00
 #SBATCH -N 1
@@ -15,6 +16,11 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --exclusive
 #SBATCH --mem=0
+
+# Try to invoke GPU-aware MPI support
+module purge
+module load PrgEnv-nvhpc craype-accel-nvidia80
+#export MPICH_GPU_SUPPORT_ENABLED=1
 
 # Everything is called from the supervising python script
 # No point in setting a walltime limit, this invokes KHARMA many times

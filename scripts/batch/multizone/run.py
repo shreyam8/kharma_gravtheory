@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # This runs a "multi-zone" KHARMA sequence
 # See --help
@@ -263,7 +263,7 @@ def update_args(run_num, kwargs, args):
     # Get start_time, ncycle, dt from previous run
     kwargs['start_time'] = pyharm.io.get_dump_time(fname)
     d = pyharm.load_dump(fname)
-    iteration  = d['iteration']
+    iteration  = int(d.params['config']['resize_restart']['iteration'])
     last_r_out = d['r_out']
     last_r_in = d['r_in']
     del d
