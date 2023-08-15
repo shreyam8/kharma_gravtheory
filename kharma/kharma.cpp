@@ -322,6 +322,34 @@ Packages_t KHARMA::ProcessPackages(std::unique_ptr<ParameterInput>& pin)
         packages.Add(Wind::Initialize(pin.get()));
     }
 
+    // Ensure these get read into the GRMHD package even when restarting
+    // TODO This, elegantly, for kharma-next
+    const Real mdot = pin->GetOrAddReal("bondi", "mdot", 1.0);
+    const Real rs = pin->GetOrAddReal("bondi", "rs", 8.0);
+    // r_shell : the radius of the shell where inside this radius is filled with vacuum. If 0, the simulation is initialized to Bondi everywhere
+    const Real r_shell = pin->GetOrAddReal("bondi", "r_shell", 0.); 
+    const bool use_gizmo = pin->GetOrAddBoolean("bondi", "use_gizmo", false);
+    auto datfn = pin->GetOrAddString("gizmo_shell", "datfn", "none");
+    const Real ur_frac = pin->GetOrAddReal("bondi", "ur_frac", 1.); 
+    const Real uphi = pin->GetOrAddReal("bondi", "uphi", 0.); 
+
+    // Add these to package properties, since they continue to be needed on boundaries
+    if(! (packages.Get("GRMHD")->AllParams().hasKey("mdot")))
+        packages.Get("GRMHD")->AddParam<Real>("mdot", mdot);
+    if(! (packages.Get("GRMHD")->AllParams().hasKey("rs")))
+        packages.Get("GRMHD")->AddParam<Real>("rs", rs);
+    if(! (packages.Get("GRMHD")->AllParams().hasKey("r_shell")))
+        packages.Get("GRMHD")->AddParam<Real>("r_shell", r_shell);
+    if(! (packages.Get("GRMHD")->AllParams().hasKey("use_gizmo")))
+        packages.Get("GRMHD")->AddParam<bool>("use_gizmo", use_gizmo);
+    if(! (packages.Get("GRMHD")->AllParams().hasKey("gizmo_dat")))
+        packages.Get("GRMHD")->AddParam<std::string>("gizmo_dat", datfn);
+    if(! (packages.Get("GRMHD")->AllParams().hasKey("ur_frac")))
+        packages.Get("GRMHD")->AddParam<Real>("ur_frac", ur_frac);
+    if(! (packages.Get("GRMHD")->AllParams().hasKey("uphi")))
+        packages.Get("GRMHD")->AddParam<Real>("uphi", uphi);
+
+
     Flag("Finished initializing packages");
     return std::move(packages);
 }

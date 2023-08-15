@@ -153,8 +153,10 @@ void ReflectX2(std::shared_ptr<MeshBlockData<Real>> &rc, IndexDomain domain, boo
     auto bounds = coarse ? pmb->c_cellbounds : pmb->cellbounds;
     const auto& G = pmb->coords;
     const Real gam = pmb->packages.Get("GRMHD")->Param<Real>("gamma");
-    Real x1min = pmb->packages.Get("GRMHD")->Param<Real>("x1min"); //Hyerin
-    Real x_EH = pmb->packages.Get("GRMHD")->Param<Real>("x_EH"); //Hyerin
+    //Real x1min = pmb->packages.Get("GRMHD")->Param<Real>("x1min"); //Hyerin
+    Real x1min = 0.;
+    //Real x_EH = pmb->packages.Get("GRMHD")->Param<Real>("x_EH"); //Hyerin
+    Real x_EH = 2.; // This should be ln(2) even for the canon run but we don't care here
 
     // q will actually have *both* cons & prims (unless using imex driver)
     // We'll only need cons.B specifically tho
@@ -235,8 +237,10 @@ void ReflectX1(std::shared_ptr<MeshBlockData<Real>> &rc, IndexDomain domain, boo
     auto bounds = coarse ? pmb->c_cellbounds : pmb->cellbounds;
     const auto& G = pmb->coords;
     const Real gam = pmb->packages.Get("GRMHD")->Param<Real>("gamma");
-    Real x1min = pmb->packages.Get("GRMHD")->Param<Real>("x1min"); //Hyerin
-    Real x_EH = pmb->packages.Get("GRMHD")->Param<Real>("x_EH"); //Hyerin
+    //Real x1min = pmb->packages.Get("GRMHD")->Param<Real>("x1min"); //Hyerin
+    Real x1min = 0.;
+    //Real x_EH = pmb->packages.Get("GRMHD")->Param<Real>("x_EH"); //Hyerin
+    Real x_EH = 2.;
 
     // q will actually have *both* cons & prims (unless using imex driver)
     // We'll only need cons.B specifically tho
@@ -314,7 +318,8 @@ void KBoundaries::InnerX1(std::shared_ptr<MeshBlockData<Real>> &rc, bool coarse)
     // TODO implement as named callback, give combo start/bound problems their own "packages"
     auto pmb = rc->GetBlockPointer();
     std::string prob = pmb->packages.Get("GRMHD")->Param<std::string>("problem");
-    Real x1min = pmb->packages.Get("GRMHD")->Param<Real>("x1min"); //Hyerin
+    //Real x1min = pmb->packages.Get("GRMHD")->Param<Real>("x1min"); //Hyerin
+    Real x1min = 0.;
     if (prob == "hubble") {
        //SetHubble(rc.get(), IndexDomain::inner_x1, coarse);
     } else if (prob == "conducting_atmosphere"){

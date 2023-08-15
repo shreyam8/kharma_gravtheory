@@ -351,7 +351,8 @@ TaskStatus FixX1Flux(MeshData<Real> *md)
     IndexRange kb_e = pmb0->cellbounds.GetBoundsK(IndexDomain::entire);
     IndexRange kb_l = IndexRange{kb_e.s + (ndim > 2), kb_e.e};
     
-    Real x1min = pmb0->packages.Get("GRMHD")->Param<Real>("x1min"); //Hyerin (01/31/23)
+    //Real x1min = pmb0->packages.Get("GRMHD")->Param<Real>("x1min"); //Hyerin (01/31/23)
+    Real x1min = 0.;
 
     // Assuming the fluxes through the pole are 0,
     // make sure the polar EMFs are 0 when performing fluxCT
